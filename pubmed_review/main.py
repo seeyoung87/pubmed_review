@@ -243,9 +243,8 @@ def google_sheets_service() -> object:
 
 
 def resolve_sheet_name(config: dict, search_name: str) -> str:
-    template = config["sheets"].get("sheet_name_template")
-    if template and search_name:
-        return template.format(search_name=search_name)
+    if search_name:
+        return search_name
     return config["sheets"]["sheet_name"]
 
 

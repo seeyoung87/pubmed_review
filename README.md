@@ -34,4 +34,4 @@ python -m pubmed_review.main
 
 ## 시트 이름
 메일 제목이 `What's new for 'Radiology NLP' in PubMed` 형태라면 따옴표 안의 이름을 추출해
-`sheet_name_template`로 지정한 템플릿에 넣습니다. 예) `'Radiology NLP'의 정리 시트`.
+해당 이름을 시트 탭 이름으로 그대로 사용합니다. (예: `Radiology NLP`)
