@@ -112,22 +112,31 @@ def fetch_pubmed_summary(pmids: Iterable[str]) -> dict:
     return response.json().get("result", {})
 
 
-def fetch_pubmed_abstract(pmid: str) -> str:
+def fetch_pubmed_abstracts(pmids: Iterable[str]) -> dict[str, str]:
+    pmid_list = list(pmids)
+    if not pmid_list:
+        return {}
     response = requests.get(
         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
-        params={"db": "pubmed", "id": pmid, "retmode": "xml"},
+        params={"db": "pubmed", "id": ",".join(pmid_list), "retmode": "xml"},
         timeout=30,
     )
     response.raise_for_status()
     root = ET.fromstring(response.text)
-    abstracts = []
-    for abstract in root.findall(".//AbstractText"):
-        if abstract.text:
-            abstracts.append(abstract.text.strip())
-    return "\n".join(abstracts)
+    abstracts_by_pmid: dict[str, str] = {}
+    for article in root.findall(".//PubmedArticle"):
+        pmid_element = article.find(".//MedlineCitation/PMID")
+        if pmid_element is None or not pmid_element.text:
+            continue
+        abstracts = []
+        for abstract in article.findall(".//AbstractText"):
+            if abstract.text:
+                abstracts.append(abstract.text.strip())
+        abstracts_by_pmid[pmid_element.text.strip()] = "\n".join(abstracts)
+    return abstracts_by_pmid
 
 
-def build_article(pmid: str, summary: dict) -> Article:
+def build_article(pmid: str, summary: dict, abstracts: dict[str, str]) -> Article:
     item = summary.get(pmid, {})
     title = item.get("title", "").strip()
     journal = item.get("fulljournalname", "").strip()
@@ -138,7 +147,7 @@ def build_article(pmid: str, summary: dict) -> Article:
             doi = article_id.get("value", "")
             break
     authors = "; ".join(author.get("name", "") for author in item.get("authors", []) or [])
-    abstract = fetch_pubmed_abstract(pmid)
+    abstract = abstracts.get(pmid, "")
     url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
     return Article(
         pmid=pmid,
@@ -159,6 +168,10 @@ def is_high_if(journal: str, high_if_list: list[str]) -> bool:
 
 def openai_client() -> OpenAI:
     return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+
+def normalize_env_value(value: str) -> str:
+    return value.replace("\u00a0", " ").strip()
 
 
 def parse_json_response(content: str, context: str) -> dict:
@@ -300,7 +313,9 @@ def connect_imap(config: dict) -> imaplib.IMAP4_SSL:
         email_config.get("imap_port", DEFAULT_IMAP_PORT),
         ssl_context=context,
     )
-    client.login(os.environ["EMAIL_USER"], os.environ["EMAIL_PASS"])
+    email_user = normalize_env_value(os.environ["EMAIL_USER"])
+    email_pass = normalize_env_value(os.environ["EMAIL_PASS"])
+    client.login(email_user, email_pass)
     return client
 
 
@@ -362,12 +377,13 @@ def main() -> None:
         pmids, search_name = parse_emails(client, config)
 
     summaries = fetch_pubmed_summary(pmids)
+    abstracts = fetch_pubmed_abstracts(pmids)
     client = openai_client()
     results = []
     high_if_list = config["filters"]["high_if_journals"]
 
     for pmid in pmids:
-        article = build_article(pmid, summaries)
+        article = build_article(pmid, summaries, abstracts)
         if not article.abstract:
             continue
         high_if_flag = is_high_if(article.journal, high_if_list)
