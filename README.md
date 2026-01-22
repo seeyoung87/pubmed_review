@@ -29,9 +29,8 @@ python -m pubmed_review.main
 6. DOI
 7. 선별 기준 (High IF, Novelty)
 8. Novelty 근거
-9. Novelty 신뢰도
-10. 요약
-11. 우수성
+9. 요약
+10. 우수성
 
 ## 시트 이름
 메일 제목이 `What's new for 'Radiology NLP' in PubMed` 형태라면 따옴표 안의 이름을 추출해

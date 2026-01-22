@@ -20,6 +20,9 @@ from openai import OpenAI
 PMID_REGEX = re.compile(r"PMID:\s*(\d+)", re.IGNORECASE)
 PMID_URL_REGEX = re.compile(r"pubmed/(\d+)", re.IGNORECASE)
 SEARCH_NAME_REGEX = re.compile(r"What's new for '(.+?)' in PubMed", re.IGNORECASE)
+DEFAULT_IMAP_HOST = "imap.gmail.com"
+DEFAULT_IMAP_PORT = 993
+DEFAULT_PUBMED_FROM = "pubmed@ncbi.nlm.nih.gov"
 
 
 @dataclass
@@ -40,7 +43,6 @@ class ReviewResult:
     high_if: bool
     is_novel: bool
     novelty_reason: str
-    novelty_confidence: float
     summary: str
     strengths: str
 
@@ -164,7 +166,7 @@ def parse_json_response(content: str, context: str) -> dict:
         raise ValueError(f"Failed to parse JSON for {context}") from exc
 
 
-def llm_novelty(client: OpenAI, config: dict, article: Article) -> tuple[bool, str, float]:
+def llm_novelty(client: OpenAI, config: dict, article: Article) -> tuple[bool, str]:
     prompt = config["llm"]["novelty_prompt"].format(
         title=article.title, journal=article.journal, abstract=article.abstract
     )
@@ -181,9 +183,8 @@ def llm_novelty(client: OpenAI, config: dict, article: Article) -> tuple[bool, s
                     "properties": {
                         "is_novel": {"type": "boolean"},
                         "reason": {"type": "string"},
-                        "confidence": {"type": "number"},
                     },
-                    "required": ["is_novel", "reason", "confidence"],
+                    "required": ["is_novel", "reason"],
                     "additionalProperties": False,
                 },
             },
@@ -192,7 +193,7 @@ def llm_novelty(client: OpenAI, config: dict, article: Article) -> tuple[bool, s
     )
     content = response.choices[0].message.content
     data = parse_json_response(content, "novelty response")
-    return bool(data.get("is_novel")), data.get("reason", ""), float(data.get("confidence", 0))
+    return bool(data.get("is_novel")), data.get("reason", "")
 
 
 def llm_summary(client: OpenAI, config: dict, article: Article) -> tuple[str, str]:
@@ -282,7 +283,6 @@ def build_rows(results: list[ReviewResult]) -> list[list[str]]:
                 article.doi,
                 ", ".join(selection),
                 result.novelty_reason,
-                f"{result.novelty_confidence:.2f}",
                 result.summary,
                 result.strengths,
             ]
@@ -292,9 +292,10 @@ def build_rows(results: list[ReviewResult]) -> list[list[str]]:
 
 def connect_imap(config: dict) -> imaplib.IMAP4_SSL:
     context = ssl.create_default_context()
+    email_config = config.get("email", {})
     client = imaplib.IMAP4_SSL(
-        config["email"]["imap_host"],
-        config["email"].get("imap_port", 993),
+        email_config.get("imap_host", DEFAULT_IMAP_HOST),
+        email_config.get("imap_port", DEFAULT_IMAP_PORT),
         ssl_context=context,
     )
     client.login(os.environ["EMAIL_USER"], os.environ["EMAIL_PASS"])
@@ -302,11 +303,13 @@ def connect_imap(config: dict) -> imaplib.IMAP4_SSL:
 
 
 def search_emails(client: imaplib.IMAP4_SSL, config: dict) -> list[bytes]:
-    client.select(config["email"].get("mailbox", "INBOX"))
-    since_date = (datetime.utcnow() - timedelta(days=config["email"].get("days_back", 5))).strftime(
+    email_config = config.get("email", {})
+    client.select(email_config.get("mailbox", "INBOX"))
+    since_date = (datetime.utcnow() - timedelta(days=email_config.get("days_back", 5))).strftime(
         "%d-%b-%Y"
     )
-    criteria = f'(SINCE {since_date} FROM "{config["email"]["from_address"]}")'
+    from_address = email_config.get("from_address", DEFAULT_PUBMED_FROM)
+    criteria = f'(SINCE {since_date} FROM "{from_address}")'
     status, data = client.search(None, criteria)
     if status != "OK":
         return []
@@ -353,7 +356,7 @@ def main() -> None:
         if not article.abstract:
             continue
         high_if_flag = is_high_if(article.journal, high_if_list)
-        is_novel, novelty_reason, novelty_confidence = llm_novelty(client, config, article)
+        is_novel, novelty_reason = llm_novelty(client, config, article)
         if not (high_if_flag or is_novel):
             continue
         summary, strengths = llm_summary(client, config, article)
@@ -363,7 +366,6 @@ def main() -> None:
                 high_if=high_if_flag,
                 is_novel=is_novel,
                 novelty_reason=novelty_reason,
-                novelty_confidence=novelty_confidence,
                 summary=summary,
                 strengths=strengths,
             )

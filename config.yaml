@@ -1,36 +1,39 @@
 email:
-  imap_host: "imap.gmail.com"
-  imap_port: 993
-  from_address: "pubmed@ncbi.nlm.nih.gov"
+  # Optional IMAP filters when ingesting PubMed alert emails.
+  # Mailbox to search (e.g., INBOX, label name).
   mailbox: "INBOX"
+  # Search window (days) for recent emails.
   days_back: 5
+  # Advanced overrides (uncomment if needed):
+  # imap_host: "imap.gmail.com"
+  # imap_port: 993
+  # from_address: "pubmed@ncbi.nlm.nih.gov"
 
 filters:
-  high_if_journals:
-    - "Nature"
-    - "Science"
-    - "Cell"
-    - "Nature Medicine"
-    - "The Lancet"
-    - "New England Journal of Medicine"
+  # High-impact journals for rule-based inclusion checks.
+  high_if_journals: ["Nature", "Science", "Cell", "Nature Medicine", "The Lancet", "New England Journal of Medicine"]
 
 llm:
+  # NOTE: Use only JSON Schema-compatible models (examples: gpt-4o-mini, gpt-4.1-mini, gpt-4.1).
   model: "gpt-4o-mini"
   temperature: 0.2
   novelty_prompt: |
-    You are evaluating whether the paper presents a clearly new or notable methodology.
-    Respond in JSON with keys: is_novel (true/false), reason (short), confidence (0-1).
+    Determine whether the paper demonstrates genuinely novel, cutting-edge methodology.
+    Only mark as novel if the contribution is clearly new and meaningfully distinct from existing work.
     Title: {title}
     Journal: {journal}
     Abstract: {abstract}
   summary_prompt: |
-    Summarize the abstract in 3-4 sentences and describe why it is strong or impactful.
-    Respond in JSON with keys: summary, strengths.
+    Summarize the abstract in no more than 3 lines and describe why it is strong or impactful.
     Title: {title}
     Journal: {journal}
     Abstract: {abstract}
 
 sheets:
+  # Google Sheets settings for output. Required if you want results written to Sheets.
+  # spreadsheet_id: the long ID in the Sheet URL (https://docs.google.com/spreadsheets/d/<ID>/edit).
   spreadsheet_id: "YOUR_SHEET_ID"
+  # sheet_name: the tab name within the spreadsheet (e.g., "PubMed").
   sheet_name: "PubMed"
+  # Optional template for sheet tab naming when a search name exists.
   sheet_name_template: "'{search_name}'의 정리 시트"
