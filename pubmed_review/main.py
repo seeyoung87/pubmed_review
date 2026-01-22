@@ -23,6 +23,8 @@ SEARCH_NAME_REGEX = re.compile(r"What's new for '(.+?)' in PubMed", re.IGNORECAS
 DEFAULT_IMAP_HOST = "imap.gmail.com"
 DEFAULT_IMAP_PORT = 993
 DEFAULT_PUBMED_FROM = "pubmed@ncbi.nlm.nih.gov"
+DEFAULT_PUBMED_SUBJECT = "What's new for"
+DEFAULT_SHEET_NAME = "PubMed"
 
 
 @dataclass
@@ -245,7 +247,7 @@ def google_sheets_service() -> object:
 def resolve_sheet_name(config: dict, search_name: str) -> str:
     if search_name:
         return search_name
-    return config["sheets"]["sheet_name"]
+    return DEFAULT_SHEET_NAME
 
 
 def append_rows(config: dict, sheet_name: str, rows: list[list[str]]) -> None:
@@ -308,7 +310,8 @@ def search_emails(client: imaplib.IMAP4_SSL, config: dict) -> list[bytes]:
         "%d-%b-%Y"
     )
     from_address = email_config.get("from_address", DEFAULT_PUBMED_FROM)
-    criteria = f'(SINCE {since_date} FROM "{from_address}")'
+    subject_filter = email_config.get("subject_contains", DEFAULT_PUBMED_SUBJECT)
+    criteria = f'(SINCE {since_date} FROM "{from_address}" SUBJECT "{subject_filter}")'
     status, data = client.search(None, criteria)
     if status != "OK":
         return []

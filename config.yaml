@@ -8,6 +8,7 @@ email:
   # imap_host: "imap.gmail.com"
   # imap_port: 993
   # from_address: "pubmed@ncbi.nlm.nih.gov"
+  # subject_contains: "What's new for"
 
 filters:
   # High-impact journals for rule-based inclusion checks.
@@ -34,6 +35,4 @@ sheets:
   # spreadsheet_id: the long ID in the Sheet URL (https://docs.google.com/spreadsheets/d/<ID>/edit).
   # You can also set SPREADSHEET_ID as an environment variable to avoid committing the ID.
   spreadsheet_id: "YOUR_SHEET_ID"
-  # sheet_name: the tab name within the spreadsheet (e.g., "PubMed").
-  sheet_name: "PubMed"
   # If a search name is extracted, it will be used as the tab name instead of sheet_name.
