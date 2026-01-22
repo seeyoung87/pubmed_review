@@ -32,6 +32,7 @@ llm:
 sheets:
   # Google Sheets settings for output. Required if you want results written to Sheets.
   # spreadsheet_id: the long ID in the Sheet URL (https://docs.google.com/spreadsheets/d/<ID>/edit).
+  # You can also set SPREADSHEET_ID as an environment variable to avoid committing the ID.
   spreadsheet_id: "YOUR_SHEET_ID"
   # sheet_name: the tab name within the spreadsheet (e.g., "PubMed").
   sheet_name: "PubMed"

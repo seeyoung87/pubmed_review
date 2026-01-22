@@ -23,6 +23,7 @@ jobs:
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           CONFIG_PATH: config.yaml
         run: |
           python -m pubmed_review.main

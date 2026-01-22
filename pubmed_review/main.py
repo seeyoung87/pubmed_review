@@ -252,7 +252,7 @@ def append_rows(config: dict, sheet_name: str, rows: list[list[str]]) -> None:
     if not rows:
         return
     service = google_sheets_service()
-    sheet_id = config["sheets"]["spreadsheet_id"]
+    sheet_id = os.environ.get("SPREADSHEET_ID") or config["sheets"]["spreadsheet_id"]
     body = {"values": rows}
     service.spreadsheets().values().append(
         spreadsheetId=sheet_id,
