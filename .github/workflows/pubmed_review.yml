@@ -2,6 +2,7 @@ name: PubMed Review Automation
 
 on:
   schedule:
+    # Keep in sync with workflow.schedule_days in config.yaml (UTC).
     - cron: "0 2 */3 * *"
   workflow_dispatch:
 
