@@ -1,0 +1,36 @@
+email:
+  imap_host: "imap.gmail.com"
+  imap_port: 993
+  from_address: "pubmed@ncbi.nlm.nih.gov"
+  mailbox: "INBOX"
+  days_back: 5
+
+filters:
+  high_if_journals:
+    - "Nature"
+    - "Science"
+    - "Cell"
+    - "Nature Medicine"
+    - "The Lancet"
+    - "New England Journal of Medicine"
+
+llm:
+  model: "gpt-4o-mini"
+  temperature: 0.2
+  novelty_prompt: |
+    You are evaluating whether the paper presents a clearly new or notable methodology.
+    Respond in JSON with keys: is_novel (true/false), reason (short), confidence (0-1).
+    Title: {title}
+    Journal: {journal}
+    Abstract: {abstract}
+  summary_prompt: |
+    Summarize the abstract in 3-4 sentences and describe why it is strong or impactful.
+    Respond in JSON with keys: summary, strengths.
+    Title: {title}
+    Journal: {journal}
+    Abstract: {abstract}
+
+sheets:
+  spreadsheet_id: "YOUR_SHEET_ID"
+  sheet_name: "PubMed"
+  sheet_name_template: "'{search_name}'의 정리 시트"
