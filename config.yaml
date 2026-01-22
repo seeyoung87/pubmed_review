@@ -8,9 +8,10 @@ email:
   # imap_host: "imap.gmail.com"
   # imap_port: 993
   # from_address: "pubmed@ncbi.nlm.nih.gov"
+  # subject_contains: "What's new for"
   # subject_contains_all:
   #   - "What's new for"
-  #   - "in Pubmed"
+  #   - "in PubMed"
 
 filters:
   # High-impact journals for rule-based inclusion checks.
@@ -37,7 +38,8 @@ sheets:
   # spreadsheet_id: the long ID in the Sheet URL (https://docs.google.com/spreadsheets/d/<ID>/edit).
   # You can also set SPREADSHEET_ID as an environment variable to avoid committing the ID.
   spreadsheet_id: "YOUR_SHEET_ID"
-  # If a search name is extracted, it will be used as the tab name instead of sheet_name.
+  # If a search name is extracted, it will be used as the tab name.
+  # If not, sheet_name can be used as a fallback (default: "PubMed").
 
 workflow:
   # GitHub Actions schedule cadence in days (UTC). Keep this in sync with .github/workflows/pubmed_review.yml.

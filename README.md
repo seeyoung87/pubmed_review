@@ -20,7 +20,7 @@ NCBI PubMed 메일을 읽어서 논문을 선별하고 LLM 요약을 만든 뒤 
 1. Google Sheets에서 스프레드시트를 생성합니다.
 2. 주소창 URL에서 `/d/<ID>/edit` 사이의 `<ID>`를 `config.yaml`의 `sheets.spreadsheet_id`에 넣거나 `SPREADSHEET_ID` 환경 변수로 설정합니다.
 3. 서비스 계정 이메일을 스프레드시트에 **편집자**로 공유합니다.
-4. 메일 제목에서 추출된 검색명이 없다면 `sheets.sheet_name` 탭에 기록됩니다.
+4. 메일 제목에서 추출된 검색명이 없다면 `sheets.sheet_name` (없으면 기본 `PubMed`) 탭에 기록됩니다.
 
 ## 로컬 실행
 ```bash

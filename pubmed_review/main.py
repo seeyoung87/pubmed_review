@@ -23,7 +23,7 @@ SEARCH_NAME_REGEX = re.compile(r"What's new for '(.+?)' in PubMed", re.IGNORECAS
 DEFAULT_IMAP_HOST = "imap.gmail.com"
 DEFAULT_IMAP_PORT = 993
 DEFAULT_PUBMED_FROM = "pubmed@ncbi.nlm.nih.gov"
-DEFAULT_PUBMED_SUBJECT_TERMS = ("What's new for", "in Pubmed")
+DEFAULT_PUBMED_SUBJECT_TERMS = ("What's new for", "in PubMed")
 DEFAULT_SHEET_NAME = "PubMed"
 
 
@@ -247,7 +247,8 @@ def google_sheets_service() -> object:
 def resolve_sheet_name(config: dict, search_name: str) -> str:
     if search_name:
         return search_name
-    return DEFAULT_SHEET_NAME
+    sheet_config = config.get("sheets", {})
+    return sheet_config.get("sheet_name") or DEFAULT_SHEET_NAME
 
 
 def append_rows(config: dict, sheet_name: str, rows: list[list[str]]) -> None:
@@ -310,10 +311,20 @@ def search_emails(client: imaplib.IMAP4_SSL, config: dict) -> list[bytes]:
         "%d-%b-%Y"
     )
     from_address = email_config.get("from_address", DEFAULT_PUBMED_FROM)
-    subject_terms = email_config.get("subject_contains_all") or DEFAULT_PUBMED_SUBJECT_TERMS
+    subject_terms = email_config.get("subject_contains_all")
+    if subject_terms is None:
+        subject_terms = email_config.get("subject_contains")
+    if subject_terms:
+        if isinstance(subject_terms, str):
+            subject_terms = [subject_terms]
+    else:
+        subject_terms = list(DEFAULT_PUBMED_SUBJECT_TERMS)
     subject_terms = [term for term in subject_terms if term]
     subject_filters = " ".join(f'SUBJECT "{term}"' for term in subject_terms)
-    criteria = f'(SINCE {since_date} FROM "{from_address}" {subject_filters})'
+    criteria_parts = [f"SINCE {since_date}", f'FROM "{from_address}"']
+    if subject_filters:
+        criteria_parts.append(subject_filters)
+    criteria = f'({" ".join(criteria_parts)})'
     status, data = client.search(None, criteria)
     if status != "OK":
         return []
