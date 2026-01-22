@@ -1,6 +1,7 @@
 import email
 import imaplib
 import json
+import logging
 import os
 import re
 import ssl
@@ -26,6 +27,8 @@ DEFAULT_PUBMED_FROM = "pubmed@ncbi.nlm.nih.gov"
 DEFAULT_PUBMED_SUBJECT_TERMS = ("What's new for", "in PubMed")
 DEFAULT_SHEET_NAME = "PubMed"
 
+LOGGER = logging.getLogger(__name__)
+
 
 @dataclass
 class Article:
@@ -50,6 +53,7 @@ class ReviewResult:
 
 
 def load_config(path: str) -> dict:
+    LOGGER.info("Loading config from %s", path)
     with open(path, "r", encoding="utf-8") as file:
         return yaml.safe_load(file)
 
@@ -101,11 +105,14 @@ def extract_search_name(subject: str) -> str:
 
 
 def fetch_pubmed_summary(pmids: Iterable[str]) -> dict:
-    if not pmids:
+    pmid_list = list(pmids)
+    if not pmid_list:
+        LOGGER.info("No PMIDs found. Skipping PubMed summary fetch.")
         return {}
+    LOGGER.info("Fetching PubMed summary for %d PMIDs", len(pmid_list))
     response = requests.get(
         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
-        params={"db": "pubmed", "id": ",".join(pmids), "retmode": "json"},
+        params={"db": "pubmed", "id": ",".join(pmid_list), "retmode": "json"},
         timeout=30,
     )
     response.raise_for_status()
@@ -115,7 +122,9 @@ def fetch_pubmed_summary(pmids: Iterable[str]) -> dict:
 def fetch_pubmed_abstracts(pmids: Iterable[str]) -> dict[str, str]:
     pmid_list = list(pmids)
     if not pmid_list:
+        LOGGER.info("No PMIDs found. Skipping PubMed abstract fetch.")
         return {}
+    LOGGER.info("Fetching PubMed abstracts for %d PMIDs", len(pmid_list))
     response = requests.get(
         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
         params={"db": "pubmed", "id": ",".join(pmid_list), "retmode": "xml"},
@@ -167,6 +176,7 @@ def is_high_if(journal: str, high_if_list: list[str]) -> bool:
 
 
 def openai_client() -> OpenAI:
+    LOGGER.info("Initializing OpenAI client")
     return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 
@@ -178,10 +188,12 @@ def parse_json_response(content: str, context: str) -> dict:
     try:
         return json.loads(content)
     except json.JSONDecodeError as exc:
+        LOGGER.error("Failed to parse JSON for %s. Raw content: %s", context, content)
         raise ValueError(f"Failed to parse JSON for {context}") from exc
 
 
 def llm_novelty(client: OpenAI, config: dict, article: Article) -> tuple[bool, str]:
+    LOGGER.info("Evaluating novelty for PMID %s", article.pmid)
     prompt = config["llm"]["novelty_prompt"].format(
         title=article.title, journal=article.journal, abstract=article.abstract
     )
@@ -212,6 +224,7 @@ def llm_novelty(client: OpenAI, config: dict, article: Article) -> tuple[bool, s
 
 
 def llm_summary(client: OpenAI, config: dict, article: Article) -> tuple[str, str]:
+    LOGGER.info("Generating summary for PMID %s", article.pmid)
     prompt = config["llm"]["summary_prompt"].format(
         title=article.title, journal=article.journal, abstract=article.abstract
     )
@@ -245,8 +258,10 @@ def google_sheets_service() -> object:
     json_data = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     file_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE")
     if json_data:
+        LOGGER.info("Using GOOGLE_SERVICE_ACCOUNT_JSON for Sheets auth")
         info = json.loads(json_data)
     elif file_path:
+        LOGGER.info("Using GOOGLE_SERVICE_ACCOUNT_FILE for Sheets auth")
         with open(file_path, "r", encoding="utf-8") as file:
             info = json.load(file)
     else:
@@ -259,16 +274,21 @@ def google_sheets_service() -> object:
 
 def resolve_sheet_name(config: dict, search_name: str) -> str:
     if search_name:
+        LOGGER.info("Using search name for sheet: %s", search_name)
         return search_name
     sheet_config = config.get("sheets", {})
-    return sheet_config.get("sheet_name") or DEFAULT_SHEET_NAME
+    resolved = sheet_config.get("sheet_name") or DEFAULT_SHEET_NAME
+    LOGGER.info("Using default sheet name: %s", resolved)
+    return resolved
 
 
 def append_rows(config: dict, sheet_name: str, rows: list[list[str]]) -> None:
     if not rows:
+        LOGGER.info("No rows to append to Sheets. Skipping update.")
         return
     service = google_sheets_service()
     sheet_id = os.environ.get("SPREADSHEET_ID") or config["sheets"]["spreadsheet_id"]
+    LOGGER.info("Appending %d rows to sheet %s", len(rows), sheet_name)
     body = {"values": rows}
     service.spreadsheets().values().append(
         spreadsheetId=sheet_id,
@@ -308,6 +328,11 @@ def build_rows(results: list[ReviewResult]) -> list[list[str]]:
 def connect_imap(config: dict) -> imaplib.IMAP4_SSL:
     context = ssl.create_default_context()
     email_config = config.get("email", {})
+    LOGGER.info(
+        "Connecting to IMAP host %s:%s",
+        email_config.get("imap_host", DEFAULT_IMAP_HOST),
+        email_config.get("imap_port", DEFAULT_IMAP_PORT),
+    )
     client = imaplib.IMAP4_SSL(
         email_config.get("imap_host", DEFAULT_IMAP_HOST),
         email_config.get("imap_port", DEFAULT_IMAP_PORT),
@@ -340,10 +365,14 @@ def search_emails(client: imaplib.IMAP4_SSL, config: dict) -> list[bytes]:
     if subject_filters:
         criteria_parts.append(subject_filters)
     criteria = f'({" ".join(criteria_parts)})'
+    LOGGER.info("Searching emails with criteria: %s", criteria)
     status, data = client.search(None, criteria)
     if status != "OK":
+        LOGGER.warning("Email search failed with status: %s", status)
         return []
-    return data[0].split()
+    ids = data[0].split()
+    LOGGER.info("Found %d emails matching criteria", len(ids))
+    return ids
 
 
 def fetch_message(client: imaplib.IMAP4_SSL, uid: bytes) -> email.message.Message:
@@ -357,19 +386,27 @@ def fetch_message(client: imaplib.IMAP4_SSL, uid: bytes) -> email.message.Messag
 def parse_emails(client: imaplib.IMAP4_SSL, config: dict) -> tuple[list[str], str]:
     pmids = []
     search_name = ""
-    for uid in search_emails(client, config):
+    uids = search_emails(client, config)
+    for uid in uids:
         message = fetch_message(client, uid)
         subject = decode_mime_words(message.get("Subject", ""))
+        LOGGER.info("Processing email UID %s with subject: %s", uid.decode(), subject)
         if not search_name:
             search_name = extract_search_name(subject)
         text = extract_text_from_email(message)
         combined = f"{subject}\n{text}"
         alert_text = extract_alert_section(combined)
         pmids.extend(find_pmids(alert_text))
-    return sorted(set(pmids)), search_name
+    unique_pmids = sorted(set(pmids))
+    LOGGER.info("Extracted %d unique PMIDs", len(unique_pmids))
+    return unique_pmids, search_name
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     config_path = os.environ.get("CONFIG_PATH", "config.yaml")
     config = load_config(config_path)
 
@@ -385,10 +422,12 @@ def main() -> None:
     for pmid in pmids:
         article = build_article(pmid, summaries, abstracts)
         if not article.abstract:
+            LOGGER.info("Skipping PMID %s because abstract is missing", pmid)
             continue
         high_if_flag = is_high_if(article.journal, high_if_list)
         is_novel, novelty_reason = llm_novelty(client, config, article)
         if not (high_if_flag or is_novel):
+            LOGGER.info("Skipping PMID %s because it is neither High IF nor Novel", pmid)
             continue
         summary, strengths = llm_summary(client, config, article)
         results.append(
