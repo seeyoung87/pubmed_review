@@ -157,6 +157,13 @@ def openai_client() -> OpenAI:
     return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 
+def parse_json_response(content: str, context: str) -> dict:
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Failed to parse JSON for {context}") from exc
+
+
 def llm_novelty(client: OpenAI, config: dict, article: Article) -> tuple[bool, str, float]:
     prompt = config["llm"]["novelty_prompt"].format(
         title=article.title, journal=article.journal, abstract=article.abstract
@@ -165,10 +172,26 @@ def llm_novelty(client: OpenAI, config: dict, article: Article) -> tuple[bool, s
         model=config["llm"]["model"],
         temperature=config["llm"].get("temperature", 0.2),
         messages=[{"role": "user", "content": prompt}],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "novelty_assessment",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "is_novel": {"type": "boolean"},
+                        "reason": {"type": "string"},
+                        "confidence": {"type": "number"},
+                    },
+                    "required": ["is_novel", "reason", "confidence"],
+                    "additionalProperties": False,
+                },
+            },
+        },
         max_tokens=400,
     )
     content = response.choices[0].message.content
-    data = json.loads(content)
+    data = parse_json_response(content, "novelty response")
     return bool(data.get("is_novel")), data.get("reason", ""), float(data.get("confidence", 0))
 
 
@@ -180,10 +203,25 @@ def llm_summary(client: OpenAI, config: dict, article: Article) -> tuple[str, st
         model=config["llm"]["model"],
         temperature=config["llm"].get("temperature", 0.2),
         messages=[{"role": "user", "content": prompt}],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "summary_response",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "summary": {"type": "string"},
+                        "strengths": {"type": "string"},
+                    },
+                    "required": ["summary", "strengths"],
+                    "additionalProperties": False,
+                },
+            },
+        },
         max_tokens=500,
     )
     content = response.choices[0].message.content
-    data = json.loads(content)
+    data = parse_json_response(content, "summary response")
     return data.get("summary", ""), data.get("strengths", "")
 
 
