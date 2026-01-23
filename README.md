@@ -27,6 +27,7 @@ pubmed:
 ### 2) 복수 쿼리 + 복수 시트
 ```yaml
 pubmed:
+  email: "your_email@example.com"
   searches:
     - query: '서치쿼리1'
       sheet_name: '시트네임1'
