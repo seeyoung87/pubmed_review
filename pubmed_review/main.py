@@ -1,30 +1,18 @@
-import email
-import imaplib
 import json
 import logging
 import os
-import re
-import ssl
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from email.header import decode_header
+from datetime import datetime
 from typing import Iterable
 import xml.etree.ElementTree as ET
 
 import requests
 import yaml
-from bs4 import BeautifulSoup
+from Bio import Entrez
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from openai import OpenAI
 
-PMID_REGEX = re.compile(r"PMID:\s*(\d+)", re.IGNORECASE)
-PMID_URL_REGEX = re.compile(r"pubmed/(\d+)", re.IGNORECASE)
-SEARCH_NAME_REGEX = re.compile(r"What's new for '(.+?)' in PubMed", re.IGNORECASE)
-DEFAULT_IMAP_HOST = "imap.gmail.com"
-DEFAULT_IMAP_PORT = 993
-DEFAULT_PUBMED_FROM = "pubmed@ncbi.nlm.nih.gov"
-DEFAULT_PUBMED_SUBJECT_TERMS = ("What's new for", "in PubMed")
 DEFAULT_SHEET_NAME = "PubMed"
 
 LOGGER = logging.getLogger(__name__)
@@ -58,90 +46,59 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(file)
 
 
-def decode_mime_words(text: str) -> str:
-    decoded = []
-    for part, encoding in decode_header(text):
-        if isinstance(part, bytes):
-            decoded.append(part.decode(encoding or "utf-8", errors="ignore"))
-        else:
-            decoded.append(part)
-    return "".join(decoded)
+def chunked(values: Iterable[str], size: int) -> Iterable[list[str]]:
+    batch: list[str] = []
+    for value in values:
+        batch.append(value)
+        if len(batch) >= size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 
-def extract_text_from_email(message: email.message.Message) -> str:
-    body_parts = []
-    for part in message.walk():
-        content_type = part.get_content_type()
-        if content_type == "text/plain" and not part.get("Content-Disposition"):
-            charset = part.get_content_charset() or "utf-8"
-            body_parts.append(part.get_payload(decode=True).decode(charset, errors="ignore"))
-        if content_type == "text/html" and not part.get("Content-Disposition"):
-            charset = part.get_content_charset() or "utf-8"
-            html = part.get_payload(decode=True).decode(charset, errors="ignore")
-            soup = BeautifulSoup(html, "html.parser")
-            body_parts.append(soup.get_text("\n"))
-    return "\n".join(body_parts)
-
-
-def find_pmids(text: str) -> list[str]:
-    pmids = set(PMID_REGEX.findall(text))
-    pmids.update(PMID_URL_REGEX.findall(text))
-    return sorted(pmids)
-
-
-def extract_alert_section(text: str) -> str:
-    marker = "PubMed Results"
-    if marker not in text:
-        return text
-    _, tail = text.split(marker, 1)
-    return f"{marker}{tail}"
-
-
-def extract_search_name(subject: str) -> str:
-    match = SEARCH_NAME_REGEX.search(subject)
-    if match:
-        return match.group(1).strip()
-    return ""
-
-
-def fetch_pubmed_summary(pmids: Iterable[str]) -> dict:
+def fetch_pubmed_summary(pmids: Iterable[str], batch_size: int = 200) -> dict:
     pmid_list = list(pmids)
     if not pmid_list:
         LOGGER.info("No PMIDs found. Skipping PubMed summary fetch.")
         return {}
+    summaries: dict = {}
     LOGGER.info("Fetching PubMed summary for %d PMIDs", len(pmid_list))
-    response = requests.get(
-        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
-        params={"db": "pubmed", "id": ",".join(pmid_list), "retmode": "json"},
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json().get("result", {})
+    for batch in chunked(pmid_list, batch_size):
+        response = requests.get(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
+            params={"db": "pubmed", "id": ",".join(batch), "retmode": "json"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        summaries.update(response.json().get("result", {}))
+    return summaries
 
 
-def fetch_pubmed_abstracts(pmids: Iterable[str]) -> dict[str, str]:
+def fetch_pubmed_abstracts(pmids: Iterable[str], batch_size: int = 200) -> dict[str, str]:
     pmid_list = list(pmids)
     if not pmid_list:
         LOGGER.info("No PMIDs found. Skipping PubMed abstract fetch.")
         return {}
-    LOGGER.info("Fetching PubMed abstracts for %d PMIDs", len(pmid_list))
-    response = requests.get(
-        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
-        params={"db": "pubmed", "id": ",".join(pmid_list), "retmode": "xml"},
-        timeout=30,
-    )
-    response.raise_for_status()
-    root = ET.fromstring(response.text)
     abstracts_by_pmid: dict[str, str] = {}
-    for article in root.findall(".//PubmedArticle"):
-        pmid_element = article.find(".//MedlineCitation/PMID")
-        if pmid_element is None or not pmid_element.text:
-            continue
-        abstracts = []
-        for abstract in article.findall(".//AbstractText"):
-            if abstract.text:
-                abstracts.append(abstract.text.strip())
-        abstracts_by_pmid[pmid_element.text.strip()] = "\n".join(abstracts)
+    LOGGER.info("Fetching PubMed abstracts for %d PMIDs", len(pmid_list))
+    for batch in chunked(pmid_list, batch_size):
+        response = requests.get(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+            params={"db": "pubmed", "id": ",".join(batch), "retmode": "xml"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        root = ET.fromstring(response.text)
+        for article in root.findall(".//PubmedArticle"):
+            pmid_element = article.find(".//MedlineCitation/PMID")
+            if pmid_element is None or not pmid_element.text:
+                continue
+            abstracts = []
+            for abstract in article.findall(".//AbstractText"):
+                if abstract.text:
+                    abstracts.append(abstract.text.strip())
+            abstracts_by_pmid[pmid_element.text.strip()] = "\n".join(abstracts)
     return abstracts_by_pmid
 
 
@@ -197,24 +154,14 @@ def llm_novelty(client: OpenAI, config: dict, article: Article) -> tuple[bool, s
     prompt = config["llm"]["novelty_prompt"].format(
         title=article.title, journal=article.journal, abstract=article.abstract
     )
+    novelty_schema = config["llm"]["novelty_schema"]
     response = client.chat.completions.create(
         model=config["llm"]["model"],
         temperature=config["llm"].get("temperature", 0.2),
         messages=[{"role": "user", "content": prompt}],
         response_format={
             "type": "json_schema",
-            "json_schema": {
-                "name": "novelty_assessment",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "is_novel": {"type": "boolean"},
-                        "reason": {"type": "string"},
-                    },
-                    "required": ["is_novel", "reason"],
-                    "additionalProperties": False,
-                },
-            },
+            "json_schema": novelty_schema,
         },
         max_tokens=400,
     )
@@ -228,24 +175,14 @@ def llm_summary(client: OpenAI, config: dict, article: Article) -> tuple[str, st
     prompt = config["llm"]["summary_prompt"].format(
         title=article.title, journal=article.journal, abstract=article.abstract
     )
+    summary_schema = config["llm"]["summary_schema"]
     response = client.chat.completions.create(
         model=config["llm"]["model"],
         temperature=config["llm"].get("temperature", 0.2),
         messages=[{"role": "user", "content": prompt}],
         response_format={
             "type": "json_schema",
-            "json_schema": {
-                "name": "summary_response",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "summary": {"type": "string"},
-                        "strengths": {"type": "string"},
-                    },
-                    "required": ["summary", "strengths"],
-                    "additionalProperties": False,
-                },
-            },
+            "json_schema": summary_schema,
         },
         max_tokens=500,
     )
@@ -325,81 +262,48 @@ def build_rows(results: list[ReviewResult]) -> list[list[str]]:
     return rows
 
 
-def connect_imap(config: dict) -> imaplib.IMAP4_SSL:
-    context = ssl.create_default_context()
-    email_config = config.get("email", {})
+def load_pubmed_settings(config: dict) -> tuple[dict, str]:
+    pubmed_config = config.get("pubmed", {})
+    email_address = os.environ.get("PUBMED_EMAIL") or pubmed_config.get("email")
+    if not email_address:
+        raise RuntimeError("Missing PUBMED_EMAIL or pubmed.email in config")
+    search_query = os.environ.get("PUBMED_SEARCH_QUERY") or pubmed_config.get("search_query")
+    if not search_query:
+        raise RuntimeError("Missing PUBMED_SEARCH_QUERY or pubmed.search_query in config")
+    return pubmed_config, search_query
+
+
+def resolve_reldate(pubmed_config: dict, schedule_days: int) -> int:
+    if pubmed_config.get("reldate") is None:
+        return schedule_days
+    return int(pubmed_config.get("reldate"))
+
+
+def fetch_pubmed_ids(pubmed_config: dict, search_query: str, reldate: int) -> list[str]:
+    email_address = os.environ.get("PUBMED_EMAIL") or pubmed_config.get("email", "")
+    Entrez.email = normalize_env_value(email_address)
+    reldate = int(os.environ.get("PUBMED_RELDATE", reldate))
+    datetype = os.environ.get("PUBMED_DATETYPE", pubmed_config.get("datetype", "edat"))
+    retmax = int(os.environ.get("PUBMED_RETMAX", pubmed_config.get("retmax", 200)))
     LOGGER.info(
-        "Connecting to IMAP host %s:%s",
-        email_config.get("imap_host", DEFAULT_IMAP_HOST),
-        email_config.get("imap_port", DEFAULT_IMAP_PORT),
+        "Searching PubMed with query=%s reldate=%s datetype=%s retmax=%s",
+        search_query,
+        reldate,
+        datetype,
+        retmax,
     )
-    client = imaplib.IMAP4_SSL(
-        email_config.get("imap_host", DEFAULT_IMAP_HOST),
-        email_config.get("imap_port", DEFAULT_IMAP_PORT),
-        ssl_context=context,
-    )
-    email_user = normalize_env_value(os.environ["EMAIL_USER"])
-    email_pass = normalize_env_value(os.environ["EMAIL_PASS"])
-    client.login(email_user, email_pass)
-    return client
-
-
-def search_emails(client: imaplib.IMAP4_SSL, config: dict) -> list[bytes]:
-    email_config = config.get("email", {})
-    client.select(email_config.get("mailbox", "INBOX"))
-    since_date = (datetime.utcnow() - timedelta(days=email_config.get("days_back", 5))).strftime(
-        "%d-%b-%Y"
-    )
-    from_address = email_config.get("from_address", DEFAULT_PUBMED_FROM)
-    subject_terms = email_config.get("subject_contains_all")
-    if subject_terms is None:
-        subject_terms = email_config.get("subject_contains")
-    if subject_terms:
-        if isinstance(subject_terms, str):
-            subject_terms = [subject_terms]
-    else:
-        subject_terms = list(DEFAULT_PUBMED_SUBJECT_TERMS)
-    subject_terms = [term for term in subject_terms if term]
-    subject_filters = " ".join(f'SUBJECT "{term}"' for term in subject_terms)
-    criteria_parts = [f"SINCE {since_date}", f'FROM "{from_address}"']
-    if subject_filters:
-        criteria_parts.append(subject_filters)
-    criteria = f'({" ".join(criteria_parts)})'
-    LOGGER.info("Searching emails with criteria: %s", criteria)
-    status, data = client.search(None, criteria)
-    if status != "OK":
-        LOGGER.warning("Email search failed with status: %s", status)
-        return []
-    ids = data[0].split()
-    LOGGER.info("Found %d emails matching criteria", len(ids))
-    return ids
-
-
-def fetch_message(client: imaplib.IMAP4_SSL, uid: bytes) -> email.message.Message:
-    status, data = client.fetch(uid, "(RFC822)")
-    if status != "OK":
-        raise RuntimeError(f"Failed to fetch email {uid!r}")
-    raw = data[0][1]
-    return email.message_from_bytes(raw)
-
-
-def parse_emails(client: imaplib.IMAP4_SSL, config: dict) -> tuple[list[str], str]:
-    pmids = []
-    search_name = ""
-    uids = search_emails(client, config)
-    for uid in uids:
-        message = fetch_message(client, uid)
-        subject = decode_mime_words(message.get("Subject", ""))
-        LOGGER.info("Processing email UID %s with subject: %s", uid.decode(), subject)
-        if not search_name:
-            search_name = extract_search_name(subject)
-        text = extract_text_from_email(message)
-        combined = f"{subject}\n{text}"
-        alert_text = extract_alert_section(combined)
-        pmids.extend(find_pmids(alert_text))
-    unique_pmids = sorted(set(pmids))
-    LOGGER.info("Extracted %d unique PMIDs", len(unique_pmids))
-    return unique_pmids, search_name
+    with Entrez.esearch(
+        db="pubmed",
+        term=search_query,
+        reldate=reldate,
+        datetype=datetype,
+        retmax=retmax,
+    ) as handle:
+        record = Entrez.read(handle)
+    count = record.get("Count", "0")
+    id_list = record.get("IdList", [])
+    LOGGER.info("Found %s PubMed records. IDs returned: %s", count, len(id_list))
+    return list(id_list)
 
 
 def main() -> None:
@@ -410,8 +314,15 @@ def main() -> None:
     config_path = os.environ.get("CONFIG_PATH", "config.yaml")
     config = load_config(config_path)
 
-    with connect_imap(config) as client:
-        pmids, search_name = parse_emails(client, config)
+    pubmed_config, search_query = load_pubmed_settings(config)
+    schedule_days = config.get("workflow", {}).get("schedule_days", 1)
+    reldate = resolve_reldate(pubmed_config, schedule_days)
+    pmids = fetch_pubmed_ids(pubmed_config, search_query, reldate)
+    search_name = pubmed_config.get("search_name", "")
+
+    if not pmids:
+        LOGGER.info("No PubMed records found. Exiting without updates.")
+        return
 
     summaries = fetch_pubmed_summary(pmids)
     abstracts = fetch_pubmed_abstracts(pmids)
