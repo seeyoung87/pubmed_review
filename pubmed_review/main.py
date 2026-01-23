@@ -193,23 +193,21 @@ def llm_summary(client: OpenAI, config: dict, article: Article) -> tuple[str, st
 
 def google_sheets_service() -> object:
     json_data = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-    file_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE")
     if json_data:
         LOGGER.info("Using GOOGLE_SERVICE_ACCOUNT_JSON for Sheets auth")
         info = json.loads(json_data)
-    elif file_path:
-        LOGGER.info("Using GOOGLE_SERVICE_ACCOUNT_FILE for Sheets auth")
-        with open(file_path, "r", encoding="utf-8") as file:
-            info = json.load(file)
     else:
-        raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE")
+        raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON")
     credentials = service_account.Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
     return build("sheets", "v4", credentials=credentials)
 
 
-def resolve_sheet_name(config: dict, search_name: str) -> str:
+def resolve_sheet_name(config: dict, search_name: str, sheet_name: str | None) -> str:
+    if sheet_name:
+        LOGGER.info("Using configured sheet name: %s", sheet_name)
+        return sheet_name
     if search_name:
         LOGGER.info("Using search name for sheet: %s", search_name)
         return search_name
@@ -262,15 +260,28 @@ def build_rows(results: list[ReviewResult]) -> list[list[str]]:
     return rows
 
 
-def load_pubmed_settings(config: dict) -> tuple[dict, str]:
+def load_pubmed_settings(config: dict) -> dict:
     pubmed_config = config.get("pubmed", {})
     email_address = os.environ.get("PUBMED_EMAIL") or pubmed_config.get("email")
     if not email_address:
         raise RuntimeError("Missing PUBMED_EMAIL or pubmed.email in config")
-    search_query = os.environ.get("PUBMED_SEARCH_QUERY") or pubmed_config.get("search_query")
+    return pubmed_config
+
+
+def build_searches(pubmed_config: dict) -> list[dict]:
+    searches = pubmed_config.get("searches")
+    if searches:
+        return searches
+    search_query = pubmed_config.get("search_query")
     if not search_query:
-        raise RuntimeError("Missing PUBMED_SEARCH_QUERY or pubmed.search_query in config")
-    return pubmed_config, search_query
+        raise RuntimeError("Missing pubmed.search_query or pubmed.searches in config")
+    return [
+        {
+            "name": pubmed_config.get("search_name", ""),
+            "query": search_query,
+            "sheet_name": pubmed_config.get("sheet_name"),
+        }
+    ]
 
 
 def fetch_pubmed_ids(pubmed_config: dict, search_query: str, reldate: int) -> list[str]:
@@ -308,48 +319,51 @@ def main() -> None:
     config_path = os.environ.get("CONFIG_PATH", "config.yaml")
     config = load_config(config_path)
 
-    pubmed_config, search_query = load_pubmed_settings(config)
+    pubmed_config = load_pubmed_settings(config)
     schedule_days = config.get("workflow", {}).get("schedule_days", 1)
     reldate = pubmed_config.get("reldate")
     if reldate is None:
         reldate = schedule_days
-    pmids = fetch_pubmed_ids(pubmed_config, search_query, int(reldate))
-    search_name = pubmed_config.get("search_name", "")
-
-    if not pmids:
-        LOGGER.info("No PubMed records found. Exiting without updates.")
-        return
-
-    summaries = fetch_pubmed_summary(pmids)
-    abstracts = fetch_pubmed_abstracts(pmids)
+    searches = build_searches(pubmed_config)
     client = openai_client()
-    results = []
     high_if_list = config["filters"]["high_if_journals"]
 
-    for pmid in pmids:
-        article = build_article(pmid, summaries, abstracts)
-        if not article.abstract:
-            LOGGER.info("Skipping PMID %s because abstract is missing", pmid)
+    for search in searches:
+        search_name = search.get("name", "")
+        search_query = search.get("query", "")
+        sheet_name = resolve_sheet_name(config, search_name, search.get("sheet_name"))
+        if not search_query:
+            LOGGER.warning("Skipping search with empty query for sheet %s", sheet_name)
             continue
-        high_if_flag = is_high_if(article.journal, high_if_list)
-        is_novel, novelty_reason = llm_novelty(client, config, article)
-        if not (high_if_flag or is_novel):
-            LOGGER.info("Skipping PMID %s because it is neither High IF nor Novel", pmid)
+        pmids = fetch_pubmed_ids(pubmed_config, search_query, int(reldate))
+        if not pmids:
+            LOGGER.info("No PubMed records found for sheet %s. Skipping.", sheet_name)
             continue
-        summary, strengths = llm_summary(client, config, article)
-        results.append(
-            ReviewResult(
-                article=article,
-                high_if=high_if_flag,
-                is_novel=is_novel,
-                novelty_reason=novelty_reason,
-                summary=summary,
-                strengths=strengths,
+        summaries = fetch_pubmed_summary(pmids)
+        abstracts = fetch_pubmed_abstracts(pmids)
+        results = []
+        for pmid in pmids:
+            article = build_article(pmid, summaries, abstracts)
+            if not article.abstract:
+                LOGGER.info("Skipping PMID %s because abstract is missing", pmid)
+                continue
+            high_if_flag = is_high_if(article.journal, high_if_list)
+            is_novel, novelty_reason = llm_novelty(client, config, article)
+            if not (high_if_flag or is_novel):
+                LOGGER.info("Skipping PMID %s because it is neither High IF nor Novel", pmid)
+                continue
+            summary, strengths = llm_summary(client, config, article)
+            results.append(
+                ReviewResult(
+                    article=article,
+                    high_if=high_if_flag,
+                    is_novel=is_novel,
+                    novelty_reason=novelty_reason,
+                    summary=summary,
+                    strengths=strengths,
+                )
             )
-        )
-
-    sheet_name = resolve_sheet_name(config, search_name)
-    append_rows(config, sheet_name, build_rows(results))
+        append_rows(config, sheet_name, build_rows(results))
 
 
 if __name__ == "__main__":

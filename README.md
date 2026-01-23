@@ -1,35 +1,50 @@
 # PubMed Review Automation
 
-NCBI PubMed API로 최신 논문을 검색하고 LLM 요약을 만든 뒤 Google Sheets에 저장하는 자동화 스크립트입니다.
+NCBI PubMed API로 최신 논문을 검색하고 LLM 요약을 만든 뒤 Google Sheets에 저장하는 자동화 파이프라인입니다.
 
-## 구성
-- `config.yaml`: PubMed 검색 설정, 모델/프롬프트, High IF 리스트, 시트 설정
-- `pubmed_review/main.py`: 전체 실행 엔트리포인트
-- GitHub Actions: 3일마다 실행
+## 전체 흐름
+1. PubMed 쿼리로 최근 등록 논문을 조회합니다.
+2. 논문 메타데이터/초록을 가져옵니다.
+3. LLM으로 Novelty/요약을 생성해 필터링합니다.
+4. 결과를 Google Sheets에 기록합니다.
 
-## 환경 변수
-- `PUBMED_EMAIL`: NCBI 연락용 이메일 주소 (Entrez 필수). `config.yaml`의 `pubmed.email`보다 우선합니다.
-- `PUBMED_SEARCH_QUERY`: PubMed 검색 쿼리. `config.yaml`의 `pubmed.search_query`보다 우선합니다.
-- `OPENAI_API_KEY`: OpenAI API 키
-- `GOOGLE_SERVICE_ACCOUNT_JSON`: 서비스 계정 JSON 문자열 (권장)
-  - 또는 `GOOGLE_SERVICE_ACCOUNT_FILE` 경로 사용 가능
-- `SPREADSHEET_ID`: (선택) Google Sheets 파일 ID. 설정하면 `config.yaml`의 `sheets.spreadsheet_id`보다 우선합니다.
-- `CONFIG_PATH`: 설정 파일 경로 (기본 `config.yaml`)
+## 필수 환경 변수
+- `PUBMED_EMAIL`: NCBI 연락용 이메일 주소 (Entrez 필수).
+- `OPENAI_API_KEY`: OpenAI API 키.
+- `GOOGLE_SERVICE_ACCOUNT_JSON`: 서비스 계정 JSON 문자열.
+- `SPREADSHEET_ID`: (선택) Google Sheets 파일 ID. 설정 시 `config.yaml`의 `sheets.spreadsheet_id`보다 우선합니다.
+- `CONFIG_PATH`: (선택) 설정 파일 경로 (기본 `config.yaml`).
 
-## Google Sheets 설정 방법
-1. Google Sheets에서 스프레드시트를 생성합니다.
-2. 주소창 URL에서 `/d/<ID>/edit` 사이의 `<ID>`를 `config.yaml`의 `sheets.spreadsheet_id`에 넣거나 `SPREADSHEET_ID` 환경 변수로 설정합니다.
-3. 서비스 계정 이메일을 스프레드시트에 **편집자**로 공유합니다.
-4. `pubmed.search_name`이 없다면 `sheets.sheet_name` (없으면 기본 `PubMed`) 탭에 기록됩니다.
-
-## 로컬 실행
-```bash
-python -m pubmed_review.main
+## 설정 파일(`config.yaml`) 핵심
+### 1) 단일 쿼리 + 단일 시트
+```yaml
+pubmed:
+  email: "your_email@example.com"
+  search_query: '("Radiology") AND ("large language model")'
+  sheet_name: "Radiology NLP"
 ```
 
-## 스케줄과 검색 기간 동기화
-GitHub Actions의 실행 주기(`workflow.schedule_days`)와 PubMed 검색 기간(`pubmed.reldate`)을 동일하게 맞춰야
-누락 없이 해당 기간의 논문을 처리할 수 있습니다. `pubmed.reldate`를 비워두면 `workflow.schedule_days` 값을 사용합니다.
+### 2) 복수 쿼리 + 복수 시트
+```yaml
+pubmed:
+  searches:
+    - query: '서치쿼리1'
+      sheet_name: '시트네임1'
+    - query: '서치쿼리2'
+      sheet_name: '시트네임2'
+```
+
+### 3) 검색 기간 동기화
+`pubmed.reldate`를 비워두면 `workflow.schedule_days` 값을 사용합니다.
+GitHub Actions 실행 주기와 검색 기간을 동일하게 맞춰야 누락이 없습니다.
+
+### 4) Google Sheets 출력 탭
+`pubmed.sheet_name` → `sheets.sheet_name` → 기본 `PubMed` 순으로 사용됩니다.
+
+## Google Sheets 준비
+1. Google Sheets에서 스프레드시트를 생성합니다.
+2. URL의 `/d/<ID>/edit` 구간에서 `<ID>`를 `sheets.spreadsheet_id`에 넣거나 `SPREADSHEET_ID`로 설정합니다.
+3. 서비스 계정 이메일을 스프레드시트에 **편집자**로 공유합니다.
 
 ## Google Sheets 컬럼
 1. 날짜
@@ -42,9 +57,6 @@ GitHub Actions의 실행 주기(`workflow.schedule_days`)와 PubMed 검색 기�
 8. Novelty 근거
 9. 요약
 10. 우수성
-
-## 시트 이름
-`pubmed.search_name`을 설정하면 시트 탭 이름으로 그대로 사용합니다. (예: `Radiology NLP`)
 
 ## LLM 출력 스키마
 `llm.novelty_schema`, `llm.summary_schema`에 JSON Schema를 정의해 출력 포맷을 제어합니다.

@@ -1,7 +1,7 @@
 pubmed:
   # NCBI 연락용 이메일 주소 (Entrez 필수).
   email: "your_email@example.com"
-  # PubMed 검색 쿼리.
+  # PubMed 검색 쿼리 (단일 쿼리 사용 시).
   search_query: '("Radiology") AND (("large language model") OR ("natural language processing") OR (Natural language processing[MeSH]) OR ("GPT"))'
   # 지난 N일간 등록된 논문 (Daily update).
   # reldate를 비우면 workflow.schedule_days 값을 사용합니다.
@@ -11,7 +11,13 @@ pubmed:
   # 최대 반환 논문 수 (필요시 조정).
   retmax: 200
   # 시트 탭 이름을 직접 지정하고 싶다면 설정.
-  search_name: "Radiology NLP"
+  sheet_name: "Radiology NLP"
+  # 복수 검색을 사용할 때는 searches에 쿼리를 여러 개 등록합니다.
+  # searches:
+  #   - query: '("Radiology") AND (("large language model") OR ("natural language processing") OR (Natural language processing[MeSH]) OR ("GPT"))'
+  #     sheet_name: "Radiology NLP"
+  #   - query: '("CT") AND ("deep learning")'
+  #     sheet_name: "CT DL"
 
 filters:
   # High-impact journals for rule-based inclusion checks.
