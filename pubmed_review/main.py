@@ -11,6 +11,7 @@ import yaml
 from Bio import Entrez
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from openai import OpenAI
 
 DEFAULT_SHEET_NAME = "PubMed"
@@ -225,13 +226,43 @@ def append_rows(config: dict, sheet_name: str, rows: list[list[str]]) -> None:
     sheet_id = os.environ.get("SPREADSHEET_ID") or config["sheets"]["spreadsheet_id"]
     LOGGER.info("Appending %d rows to sheet %s", len(rows), sheet_name)
     body = {"values": rows}
-    service.spreadsheets().values().append(
-        spreadsheetId=sheet_id,
-        range=f"{sheet_name}!A1",
-        valueInputOption="RAW",
-        insertDataOption="INSERT_ROWS",
-        body=body,
-    ).execute()
+    try:
+        service.spreadsheets().values().append(
+            spreadsheetId=sheet_id,
+            range=f"{sheet_name}!A1",
+            valueInputOption="RAW",
+            insertDataOption="INSERT_ROWS",
+            body=body,
+        ).execute()
+    except HttpError as exc:
+        message = None
+        activation_url = None
+        reason = None
+        try:
+            content = exc.content.decode("utf-8") if isinstance(exc.content, (bytes, bytearray)) else exc.content
+            payload = json.loads(content)
+            error = payload.get("error", {})
+            message = error.get("message")
+            for detail in error.get("details", []) or []:
+                if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
+                    metadata = detail.get("metadata", {})
+                    activation_url = metadata.get("activationUrl")
+                    reason = detail.get("reason")
+                    break
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            message = None
+        if exc.resp is not None and exc.resp.status == 403 and reason == "SERVICE_DISABLED":
+            LOGGER.error(
+                "Google Sheets API is disabled for the configured project. Enable it at %s",
+                activation_url or "https://console.developers.google.com/apis/api/sheets.googleapis.com/overview",
+            )
+            return
+        LOGGER.exception(
+            "Failed to append rows to Google Sheets. Status=%s Message=%s",
+            exc.resp.status if exc.resp is not None else "unknown",
+            message or "unknown",
+        )
+        raise
 
 
 def build_rows(results: list[ReviewResult]) -> list[list[str]]:
