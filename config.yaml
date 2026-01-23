@@ -1,17 +1,17 @@
-email:
-  # Optional IMAP filters when ingesting PubMed alert emails.
-  # Mailbox to search (e.g., INBOX, label name).
-  mailbox: "INBOX"
-  # Search window (days) for recent emails.
-  days_back: 5
-  # Advanced overrides (uncomment if needed):
-  # imap_host: "imap.gmail.com"
-  # imap_port: 993
-  # from_address: "pubmed@ncbi.nlm.nih.gov"
-  # subject_contains: "What's new for"
-  # subject_contains_all:
-  #   - "What's new for"
-  #   - "in PubMed"
+pubmed:
+  # NCBI 연락용 이메일 주소 (Entrez 필수).
+  email: "your_email@example.com"
+  # PubMed 검색 쿼리.
+  search_query: '("Radiology") AND (("large language model") OR ("natural language processing") OR (Natural language processing[MeSH]) OR ("GPT"))'
+  # 지난 N일간 등록된 논문 (Daily update).
+  # reldate를 비우면 workflow.schedule_days 값을 사용합니다.
+  reldate:
+  # DB 등록일 기준 (누락 방지).
+  datetype: "edat"
+  # 최대 반환 논문 수 (필요시 조정).
+  retmax: 200
+  # 시트 탭 이름을 직접 지정하고 싶다면 설정.
+  search_name: "Radiology NLP"
 
 filters:
   # High-impact journals for rule-based inclusion checks.
@@ -27,11 +27,33 @@ llm:
     Title: {title}
     Journal: {journal}
     Abstract: {abstract}
+  novelty_schema:
+    name: "novelty_assessment"
+    schema:
+      type: "object"
+      properties:
+        is_novel:
+          type: "boolean"
+        reason:
+          type: "string"
+      required: ["is_novel", "reason"]
+      additionalProperties: false
   summary_prompt: |
     Summarize the abstract in no more than 3 lines and describe why it is strong or impactful.
     Title: {title}
     Journal: {journal}
     Abstract: {abstract}
+  summary_schema:
+    name: "summary_response"
+    schema:
+      type: "object"
+      properties:
+        summary:
+          type: "string"
+        strengths:
+          type: "string"
+      required: ["summary", "strengths"]
+      additionalProperties: false
 
 sheets:
   # Google Sheets settings for output. Required if you want results written to Sheets.

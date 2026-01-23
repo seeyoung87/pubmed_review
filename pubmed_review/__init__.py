@@ -1,1 +1,1 @@
-"""PubMed email automation package."""
+"""PubMed search automation package."""
