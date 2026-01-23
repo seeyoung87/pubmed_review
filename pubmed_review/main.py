@@ -252,11 +252,18 @@ def append_rows(config: dict, sheet_name: str, rows: list[list[str]]) -> None:
         except (json.JSONDecodeError, TypeError, AttributeError):
             message = None
         if exc.resp is not None and exc.resp.status == 403 and reason == "SERVICE_DISABLED":
+            activation_link = (
+                activation_url
+                or "https://console.developers.google.com/apis/api/sheets.googleapis.com/overview"
+            )
             LOGGER.error(
                 "Google Sheets API is disabled for the configured project. Enable it at %s",
-                activation_url or "https://console.developers.google.com/apis/api/sheets.googleapis.com/overview",
+                activation_link,
             )
-            return
+            raise RuntimeError(
+                "Google Sheets API is disabled for the configured project. "
+                f"Enable it at {activation_link}"
+            ) from exc
         LOGGER.exception(
             "Failed to append rows to Google Sheets. Status=%s Message=%s",
             exc.resp.status if exc.resp is not None else "unknown",
