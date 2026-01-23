@@ -21,7 +21,7 @@ pubmed:
 
 filters:
   # High-impact journals for rule-based inclusion checks.
-  high_if_journals: ["Nature", "Science", "Cell", "Nature Medicine", "The Lancet", "New England Journal of Medicine"]
+  high_if_journals: ["Nature", "Science", "Cell", "Nature Medicine", "The Lancet", "New England Journal of Medicine", "Scientific Reports"]
 
 llm:
   # NOTE: Use only JSON Schema-compatible models (examples: gpt-4o-mini, gpt-4.1-mini, gpt-4.1).
@@ -71,4 +71,4 @@ sheets:
 
 workflow:
   # GitHub Actions schedule cadence in days (UTC). Keep this in sync with .github/workflows/pubmed_review.yml.
-  schedule_days: 3
+  schedule_days: 2
