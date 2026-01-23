@@ -260,12 +260,12 @@ def build_rows(results: list[ReviewResult]) -> list[list[str]]:
     return rows
 
 
-def load_pubmed_settings(config: dict) -> dict:
-    pubmed_config = config.get("pubmed", {})
-    email_address = os.environ.get("PUBMED_EMAIL") or pubmed_config.get("email")
+def get_pubmed_email(pubmed_config: dict) -> str:
+    email_address = os.environ.get("PUBMED_EMAIL") or pubmed_config.get("email", "")
+    email_address = normalize_env_value(email_address)
     if not email_address:
         raise RuntimeError("Missing PUBMED_EMAIL or pubmed.email in config")
-    return pubmed_config
+    return email_address
 
 
 def build_searches(pubmed_config: dict) -> list[dict]:
@@ -285,8 +285,6 @@ def build_searches(pubmed_config: dict) -> list[dict]:
 
 
 def fetch_pubmed_ids(pubmed_config: dict, search_query: str, reldate: int) -> list[str]:
-    email_address = os.environ.get("PUBMED_EMAIL") or pubmed_config.get("email", "")
-    Entrez.email = normalize_env_value(email_address)
     reldate = int(os.environ.get("PUBMED_RELDATE", reldate))
     datetype = os.environ.get("PUBMED_DATETYPE", pubmed_config.get("datetype", "edat"))
     retmax = int(os.environ.get("PUBMED_RETMAX", pubmed_config.get("retmax", 200)))
@@ -319,7 +317,8 @@ def main() -> None:
     config_path = os.environ.get("CONFIG_PATH", "config.yaml")
     config = load_config(config_path)
 
-    pubmed_config = load_pubmed_settings(config)
+    pubmed_config = config.get("pubmed", {})
+    Entrez.email = get_pubmed_email(pubmed_config)
     schedule_days = config.get("workflow", {}).get("schedule_days", 1)
     reldate = pubmed_config.get("reldate")
     if reldate is None:
