@@ -28,7 +28,7 @@ filters:
   ]
 
 llm:
-  model: "gpt-4o-mini"
+  model: "gpt-5-mini"
   temperature: 0.2
 
   # Novelty evaluation prompt (Available variables: {title}, {journal}, {abstract})
