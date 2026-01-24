@@ -183,6 +183,99 @@ PubMed 검색 → 메타데이터 수집 → 중복 체크
 
 ---
 
+## 🔍 PubMed 저널 이름 확인 방법
+
+`config.yaml`의 `high_if_journals` 리스트에 저널을 추가할 때, **PubMed API가 사용하는 정확한 저널 이름**을 확인하는 방법:
+
+### 방법 1: PubMed 웹사이트에서 확인
+
+1. [PubMed](https://pubmed.ncbi.nlm.nih.gov/)에서 논문 검색
+2. 논문 상세 페이지에서 **저널 이름** 확인
+   - 예: "Nature Medicine", "The Lancet Oncology"
+3. 해당 이름을 `config.yaml`에 추가
+
+**예시:**
+```
+PubMed 페이지에서 표시되는 이름: "Nature Medicine"
+→ config.yaml: "Nature Medicine"
+
+PubMed 페이지에서 표시되는 이름: "The Lancet Oncology"
+→ config.yaml: "The Lancet"  (substring matching으로 모든 Lancet 시리즈 매치)
+```
+
+### 방법 2: PubMed API로 직접 확인
+
+```bash
+# PMID로 저널 이름 확인
+curl "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=YOUR_PMID&retmode=json"
+```
+
+**응답 예시:**
+```json
+{
+  "result": {
+    "12345": {
+      "fulljournalname": "Nature Medicine",  ← 이 이름 사용
+      "title": "Article Title",
+      ...
+    }
+  }
+}
+```
+
+→ `fulljournalname` 필드의 값을 `config.yaml`에 추가
+
+### 방법 3: 코드 실행 후 로그에서 확인
+
+이 도구를 실행하면 각 논문의 저널 이름이 로그에 출력됩니다:
+```
+Processing PMID: 12345678
+  - Title: Article Title
+  - Journal: Nature Medicine  ← 이 이름 확인
+  - High IF: False
+```
+
+### 저널 이름 매칭 규칙
+
+이 도구는 **대소문자 구분 없는 부분 문자열 매칭**을 사용합니다:
+
+| config.yaml | PubMed 저널 이름 | 매칭 여부 |
+|-------------|------------------|-----------|
+| `"Nature"` | "Nature" | ✅ 매칭 |
+| `"Nature"` | "Nature Medicine" | ✅ 매칭 (부분 문자열) |
+| `"Nature"` | "nature" | ✅ 매칭 (대소문자 무시) |
+| `"Lancet"` | "The Lancet Oncology" | ✅ 매칭 (부분 문자열) |
+| `"Radiology"` | "European Radiology" | ✅ 매칭 (부분 문자열) |
+| `"Radiology"` | "Skeletal Radiology" | ✅ 매칭 (부분 문자열) |
+
+**주의:** 부분 매칭으로 인해 의도하지 않은 저널도 매칭될 수 있습니다.
+- 예: `"Radiology"`를 추가하면 "Skeletal Radiology", "Pediatric Radiology" 등도 모두 매칭됨
+- 특정 저널만 매칭하려면 더 긴 이름 사용: `"European Radiology"`
+
+### 팁: High IF 저널 리스트 확장하기
+
+1. 관심 분야의 주요 저널 PMID 몇 개를 PubMed에서 찾기
+2. 위 방법으로 정확한 저널 이름 확인
+3. `config.yaml`의 `filters.high_if_journals`에 추가
+4. 테스트 실행으로 매칭 확인
+
+**예시:**
+```yaml
+filters:
+  high_if_journals: [
+    # 정확한 이름
+    "Nature Medicine",
+    "The Lancet Oncology",
+
+    # 시리즈 전체 매칭
+    "Nature",        # Nature, Nature Medicine, Nature Biotechnology 등 모두 매칭
+    "Lancet",        # The Lancet, The Lancet Oncology 등 모두 매칭
+    "Radiology",     # Radiology, European Radiology 등 모두 매칭
+  ]
+```
+
+---
+
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file for details
