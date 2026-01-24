@@ -17,41 +17,31 @@ PubMed 최신 논문을 자동으로 검색하고, AI로 평가한 뒤 Google Sh
 
 ## 🚀 Quick Start
 
-### 1. 환경 설정
+### 1. 저장소 Fork 및 설정
 
-```bash
-# 저장소 클론
-git clone https://github.com/your-username/pubmed_review.git
-cd pubmed_review
+1. GitHub에서 이 저장소를 Fork
+2. Fork한 저장소의 `config.yaml` 수정
+   - `pubmed.email`: 본인 이메일
+   - `pubmed.searches`: 검색 쿼리와 시트 이름
+   - `sheets.spreadsheet_id`: Google Sheets ID
 
-# 의존성 설치
-pip install -r requirements.txt
+### 2. GitHub Secrets 설정
 
-# 설정 파일 수정
-cp config.yaml config.yaml  # 이미 있음
-# config.yaml에서 email, search_query 수정
-```
+Fork한 저장소에서 **Settings → Secrets and variables → Actions** 이동 후 추가:
 
-### 2. API 키 설정
-
-**필수 환경 변수:**
-
-```bash
-export PUBMED_EMAIL="your_email@example.com"
-export OPENAI_API_KEY="sk-..."
-export GOOGLE_SERVICE_ACCOUNT_JSON='{"type": "service_account", ...}'
-export SPREADSHEET_ID="1AbC...xYz"  # Google Sheets ID
-```
+- `OPENAI_API_KEY`: OpenAI API 키
+- `GOOGLE_SERVICE_ACCOUNT_JSON`: Google 서비스 계정 JSON (전체 내용)
+- `SPREADSHEET_ID`: Google Sheets ID
 
 <details>
-<summary>📌 Google Service Account 생성 방법</summary>
+<summary>📌 Google Service Account 생성</summary>
 
 1. [Google Cloud Console](https://console.cloud.google.com) 접속
 2. 프로젝트 생성 → APIs & Services → Credentials
-3. Create Credentials → Service Account 생성
-4. Service Account에서 Keys → Add Key → JSON 다운로드
-5. JSON 파일 내용을 `GOOGLE_SERVICE_ACCOUNT_JSON`에 복사
-6. Google Sheets API 활성화: [여기서 활성화](https://console.developers.google.com/apis/api/sheets.googleapis.com/overview)
+3. Create Credentials → Service Account
+4. Keys → Add Key → JSON 다운로드
+5. JSON 파일 전체 내용을 `GOOGLE_SERVICE_ACCOUNT_JSON`에 복사
+6. [Google Sheets API 활성화](https://console.developers.google.com/apis/api/sheets.googleapis.com/overview)
 
 </details>
 
@@ -61,95 +51,38 @@ export SPREADSHEET_ID="1AbC...xYz"  # Google Sheets ID
 2. URL에서 ID 복사: `https://docs.google.com/spreadsheets/d/`**`1AbC...xYz`**`/edit`
 3. 서비스 계정 이메일(`xxx@xxx.iam.gserviceaccount.com`)을 **편집자**로 공유
 
-### 4. 로컬 테스트
+### 4. 자동화 실행
 
-**Dry-run 모드 (API 호출 없이 설정 검증):**
+**자동 실행:** 3일마다 자동으로 실행됩니다 (GitHub Actions)
 
-```bash
-DRY_RUN=true python -m pubmed_review.main
-```
+**수동 실행:**
+1. Fork한 저장소의 **Actions** 탭 이동
+2. **PubMed Review Automation** 선택
+3. **Run workflow** 클릭
 
-**실제 실행:**
-
-```bash
-python -m pubmed_review.main
-```
-
-성공하면 Google Sheets에 다음과 같이 저장됩니다:
-
-| Date | PMID | Title | Journal | ... | Summary |
-|------|------|-------|---------|-----|---------|
-| 2026-01-24 | 38123456 | Novel deep learning... | Radiology | ... | This study presents... |
+**결과 확인:** Google Sheets에 자동으로 저장됩니다
 
 <details>
-<summary>📸 예상 결과물 보기</summary>
+<summary>📸 예상 결과물</summary>
 
-Google Sheets에 다음 형식으로 저장됩니다:
-
-```
-| Date       | PMID     | Title                          | Journal   | Pub Date  | DOI              | Selection    | Novelty Reason        | Summary           | Strengths         |
-|------------|----------|--------------------------------|-----------|-----------|------------------|--------------|-----------------------|-------------------|-------------------|
-| 2026-01-24 | 38123456 | Deep learning for CT diagnosis | Radiology | 2026 Jan  | 10.1148/rad.123  | High IF      | Not evaluated (High IF)| This study uses...| Strong dataset... |
-| 2026-01-24 | 38123457 | Novel AI approach for MRI      | Other     | 2026 Jan  | 10.1234/abc.456  | Novelty      | New architecture...   | Introduces a...   | Innovative method |
-```
-
-각 논문은 자동으로 평가되어 High IF 또는 Novelty 기준으로 필터링됩니다.
+| Date | PMID | Title | Journal | Selection | Summary |
+|------|------|-------|---------|-----------|---------|
+| 2026-01-24 | 38123456 | Deep learning for CT... | Radiology | High IF | This study uses... |
+| 2026-01-24 | 38123457 | Novel AI for MRI | Other | Novelty | Introduces a... |
 
 </details>
-
-### 5. GitHub Actions 자동화
-
-**Secrets 설정** (Settings → Secrets and variables → Actions):
-
-- `OPENAI_API_KEY`
-- `GOOGLE_SERVICE_ACCOUNT_JSON`
-- `SPREADSHEET_ID`
-
-`.github/workflows/pubmed_review.yml`이 이미 설정되어 있어서 **3일마다 자동 실행**됩니다.
-
-수동 실행: Actions 탭 → PubMed Review Automation → Run workflow
 
 ---
 
 ## 💰 Cost Estimation
 
-### OpenAI API Costs (gpt-4o-mini)
+**Monthly cost:** ~**$0.10 USD/month** (OpenAI API, gpt-4o-mini)
+- 실행당: ~$0.01 USD
+- 3일마다 자동 실행
 
-**Typical usage per run:**
-- 50 papers found
-- 30 papers filtered (20 High IF, 10 Novel)
-- High IF papers: 1 API call each (summary only)
-- Novel papers: 2 API calls each (novelty + summary)
-
-**Token usage:**
-- Novelty check: ~600 tokens per paper
-- Summary: ~700 tokens per paper
-
-**Estimated cost per run:**
-```
-High IF papers:  20 × 700 tokens  = 14,000 tokens
-Novel papers:    10 × 1,300 tokens = 13,000 tokens
-Total:                                27,000 tokens ≈ $0.01 USD
-```
-
-**Monthly cost (every 3 days):**
-- ~10 runs/month × $0.01 = **$0.10 USD/month**
-
-**Cost optimization tips:**
-1. Add more journals to `high_if_journals` (skips novelty check)
-2. Reduce `retmax` if you don't need 200 papers
-3. Use narrower search queries
-
-### Google Sheets API
-
-**Free tier:**
-- 60 requests/minute per user
-- This tool uses <10 requests per run
-- **Cost: $0**
-
-### PubMed API
-
-**Free** - No cost, no API key required (just email for contact)
+**무료 서비스:**
+- Google Sheets API: $0
+- PubMed API: $0
 
 ---
 
@@ -334,71 +267,6 @@ PubMed 검색
 
 ---
 
-## 🛠️ Development
-
-### Running Tests
-
-```bash
-# Install test dependencies
-pip install -r requirements.txt
-
-# Run all tests
-pytest tests/ -v
-
-# Run with coverage
-pytest tests/ --cov=pubmed_review --cov-report=html
-
-# Run specific test
-pytest tests/test_main.py::TestClassName::test_method -v
-```
-
-### Local Development
-
-```bash
-# Dry-run mode (no API calls)
-DRY_RUN=true python -m pubmed_review.main
-
-# Debug mode
-LOG_LEVEL=DEBUG python -m pubmed_review.main
-
-# Custom config file
-CONFIG_PATH=config.dev.yaml python -m pubmed_review.main
-```
-
-### Project Structure
-
-```
-pubmed_review/
-├── pubmed_review/       # Main package
-│   ├── __init__.py
-│   └── main.py         # Core logic
-├── tests/              # Test suite
-│   ├── __init__.py
-│   └── test_main.py
-├── config.yaml         # Configuration
-└── requirements.txt    # Dependencies
-```
-
----
-
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file for details
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! 🙌
-
-- 📖 Read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
-- 🐛 Report bugs via [Issues](https://github.com/radssk/pubmed_review/issues)
-- 💡 Suggest features via [Discussions](https://github.com/radssk/pubmed_review/discussions)
-
-**Quick Contribution Guide:**
-1. Fork the repo
-2. Create a feature branch
-3. Write tests for your changes
-4. Make your changes
-5. Run tests: `pytest tests/ -v`
-6. Submit a Pull Request
