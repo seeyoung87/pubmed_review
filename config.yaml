@@ -12,47 +12,46 @@ sheets:
   spreadsheet_id: "YOUR_SHEET_ID"
 
 filters:
-  high_if_journals:
+  # High Impact Factor journals (exact match, case-insensitive)
+  high_if_journals: [
     # General High-Impact
-    - "Nature"
-    - "Science"
-    - "Cell"
-    - "Nature Medicine"
-    - "The Lancet"
-    - "New England Journal of Medicine"
-    - "JAMA"
+    "Nature", "Science", "Cell", "Nature Medicine", "The Lancet",
+    "New England Journal of Medicine", "JAMA",
     # Radiology
-    - "Radiology"
-    - "European Radiology"
-    - "American Journal of Roentgenology"
-    - "Radiographics"
-    - "Journal of Nuclear Medicine"
+    "Radiology", "European Radiology", "American Journal of Roentgenology",
+    "Radiographics", "Journal of Nuclear Medicine",
     # AI & Medical Imaging
-    - "Nature Machine Intelligence"
-    - "IEEE Transactions on Pattern Analysis and Machine Intelligence"
-    - "IEEE Transactions on Medical Imaging"
-    - "Medical Image Analysis"
-    - "Artificial Intelligence in Medicine"
+    "Nature Machine Intelligence",
+    "IEEE Transactions on Pattern Analysis and Machine Intelligence",
+    "IEEE Transactions on Medical Imaging", "Medical Image Analysis",
+    "Artificial Intelligence in Medicine"
+  ]
 
-# LLM Configuration (Optional: Customize prompts and model settings)
-# Uncomment and modify to override defaults
-# llm:
-#   model: "gpt-4o-mini"
-#   temperature: 0.2
-#
-#   # Novelty evaluation prompt
-#   # Available variables: {title}, {journal}, {abstract}
-#   novelty_prompt: |
-#     Determine whether the paper demonstrates genuinely novel, cutting-edge methodology.
-#     Only mark as novel if the contribution is clearly new and meaningfully distinct from existing work.
-#     Title: {title}
-#     Journal: {journal}
-#     Abstract: {abstract}
-#
-#   # Summary generation prompt
-#   # Available variables: {title}, {journal}, {abstract}
-#   summary_prompt: |
-#     Summarize the abstract in no more than 3 lines and describe why it is strong or impactful.
-#     Title: {title}
-#     Journal: {journal}
-#     Abstract: {abstract}
+llm:
+  model: "gpt-4o-mini"
+  temperature: 0.2
+
+  # Novelty evaluation prompt (Available variables: {title}, {journal}, {abstract})
+  novelty_prompt: |
+    이 논문이 정말로 혁신적이고 참신한(novel) 방법론을 제시하는지 매우 엄격하게 평가하세요.
+    기존 연구의 incremental improvement나 단순 응용은 novel로 인정하지 마세요.
+    완전히 새로운 methodology, architecture, 또는 breakthrough만 novel로 판정하세요.
+
+    제목: {title}
+    저널: {journal}
+    초록: {abstract}
+
+    답변은 한글로 작성하되, 중요 키워드(method명, model명 등)는 영어 그대로 사용하세요.
+    근거(reason)는 정확히 2줄 이내로 작성하세요.
+
+  # Summary generation prompt (Available variables: {title}, {journal}, {abstract})
+  summary_prompt: |
+    논문을 정확히 2줄로 요약하고, 강점을 1줄로 설명하세요.
+
+    제목: {title}
+    저널: {journal}
+    초록: {abstract}
+
+    답변은 한글로 작성하되, 중요 키워드(method명, dataset명, metric명 등)는 영어 그대로 사용하세요.
+    - summary: 정확히 2줄
+    - strengths: 정확히 1줄
