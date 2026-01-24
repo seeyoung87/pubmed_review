@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
@@ -14,7 +15,25 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from openai import OpenAI
 
+# Constants
 DEFAULT_SHEET_NAME = "PubMed"
+BATCH_SIZE = 200
+SAVE_BATCH_SIZE = 10
+MAX_RETRIES = 4
+RETRY_DELAYS = [2, 4, 8, 16]
+
+COLUMN_HEADERS = [
+    "Date",
+    "PMID",
+    "Title",
+    "Journal",
+    "Publication Date",
+    "DOI",
+    "Selection Criteria",
+    "Novelty Reason",
+    "Summary",
+    "Strengths",
+]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,12 +61,14 @@ class ReviewResult:
 
 
 def load_config(path: str) -> dict:
+    """Load configuration from YAML file."""
     LOGGER.info("Loading config from %s", path)
     with open(path, "r", encoding="utf-8") as file:
         return yaml.safe_load(file)
 
 
 def chunked(values: Iterable[str], size: int) -> Iterable[list[str]]:
+    """Split iterable into chunks of specified size."""
     batch: list[str] = []
     for value in values:
         batch.append(value)
@@ -58,64 +79,88 @@ def chunked(values: Iterable[str], size: int) -> Iterable[list[str]]:
         yield batch
 
 
-def fetch_pubmed_summary(pmids: Iterable[str], batch_size: int = 200) -> dict:
-    pmid_list = list(pmids)
-    if not pmid_list:
-        LOGGER.info("No PMIDs found. Skipping PubMed summary fetch.")
-        return {}
-    summaries: dict = {}
-    LOGGER.info("Fetching PubMed summary for %d PMIDs", len(pmid_list))
-    for batch in chunked(pmid_list, batch_size):
-        response = requests.get(
-            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
-            params={"db": "pubmed", "id": ",".join(batch), "retmode": "json"},
-            timeout=30,
-        )
-        response.raise_for_status()
-        summaries.update(response.json().get("result", {}))
-    return summaries
+def retry_with_backoff(func, *args, max_retries=MAX_RETRIES, **kwargs):
+    """Retry a function with exponential backoff."""
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except (requests.RequestException, Exception) as exc:
+            if attempt == max_retries - 1:
+                raise
+            delay = RETRY_DELAYS[attempt] if attempt < len(RETRY_DELAYS) else RETRY_DELAYS[-1]
+            LOGGER.warning("Attempt %d failed: %s. Retrying in %ds...", attempt + 1, exc, delay)
+            time.sleep(delay)
 
 
-def fetch_pubmed_abstracts(pmids: Iterable[str], batch_size: int = 200) -> dict[str, str]:
-    pmid_list = list(pmids)
-    if not pmid_list:
-        LOGGER.info("No PMIDs found. Skipping PubMed abstract fetch.")
-        return {}
-    abstracts_by_pmid: dict[str, str] = {}
-    LOGGER.info("Fetching PubMed abstracts for %d PMIDs", len(pmid_list))
-    for batch in chunked(pmid_list, batch_size):
-        response = requests.get(
-            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
-            params={"db": "pubmed", "id": ",".join(batch), "retmode": "xml"},
-            timeout=30,
-        )
-        response.raise_for_status()
-        root = ET.fromstring(response.text)
+def fetch_pubmed_data(pmids: list[str]) -> tuple[dict, dict[str, str]]:
+    """Fetch both summaries and abstracts for PMIDs."""
+    if not pmids:
+        LOGGER.info("No PMIDs to fetch")
+        return {}, {}
+
+    summaries = {}
+    abstracts = {}
+
+    LOGGER.info("Fetching PubMed data for %d PMIDs", len(pmids))
+
+    for batch in chunked(pmids, BATCH_SIZE):
+        # Fetch summaries
+        def fetch_summary():
+            response = requests.get(
+                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
+                params={"db": "pubmed", "id": ",".join(batch), "retmode": "json"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json().get("result", {})
+
+        summaries.update(retry_with_backoff(fetch_summary))
+
+        # Fetch abstracts
+        def fetch_abstract():
+            response = requests.get(
+                "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+                params={"db": "pubmed", "id": ",".join(batch), "retmode": "xml"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.text
+
+        xml_text = retry_with_backoff(fetch_abstract)
+        root = ET.fromstring(xml_text)
+
         for article in root.findall(".//PubmedArticle"):
             pmid_element = article.find(".//MedlineCitation/PMID")
             if pmid_element is None or not pmid_element.text:
                 continue
-            abstracts = []
+
+            abstract_texts = []
             for abstract in article.findall(".//AbstractText"):
                 if abstract.text:
-                    abstracts.append(abstract.text.strip())
-            abstracts_by_pmid[pmid_element.text.strip()] = "\n".join(abstracts)
-    return abstracts_by_pmid
+                    abstract_texts.append(abstract.text.strip())
+
+            abstracts[pmid_element.text.strip()] = "\n".join(abstract_texts)
+
+    return summaries, abstracts
 
 
 def build_article(pmid: str, summary: dict, abstracts: dict[str, str]) -> Article:
+    """Build Article object from PubMed data."""
     item = summary.get(pmid, {})
     title = item.get("title", "").strip()
     journal = item.get("fulljournalname", "").strip()
     pub_date = item.get("pubdate", "").strip()
+
     doi = ""
     for article_id in item.get("articleids", []) or []:
         if article_id.get("idtype") == "doi":
             doi = article_id.get("value", "")
             break
+
     authors = "; ".join(author.get("name", "") for author in item.get("authors", []) or [])
     abstract = abstracts.get(pmid, "")
     url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+
     return Article(
         pmid=pmid,
         title=title,
@@ -129,76 +174,75 @@ def build_article(pmid: str, summary: dict, abstracts: dict[str, str]) -> Articl
 
 
 def is_high_if(journal: str, high_if_list: list[str]) -> bool:
+    """Check if journal is in high impact factor list."""
     normalized = journal.lower()
     return any(name.lower() in normalized for name in high_if_list)
 
 
 def openai_client() -> OpenAI:
+    """Initialize OpenAI client."""
     LOGGER.info("Initializing OpenAI client")
     return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 
-def normalize_env_value(value: str) -> str:
-    return value.replace("\u00a0", " ").strip()
+def llm_call(client: OpenAI, config: dict, prompt: str, schema: dict, max_tokens: int) -> dict:
+    """Make LLM API call with structured output."""
+    response = client.chat.completions.create(
+        model=config["llm"]["model"],
+        temperature=config["llm"].get("temperature", 0.2),
+        messages=[{"role": "user", "content": prompt}],
+        response_format={
+            "type": "json_schema",
+            "json_schema": schema,
+        },
+        max_tokens=max_tokens,
+    )
 
+    # Log token usage
+    usage = response.usage
+    LOGGER.info(
+        "LLM usage - prompt: %d, completion: %d, total: %d tokens",
+        usage.prompt_tokens,
+        usage.completion_tokens,
+        usage.total_tokens,
+    )
 
-def parse_json_response(content: str, context: str) -> dict:
+    content = response.choices[0].message.content
     try:
         return json.loads(content)
     except json.JSONDecodeError as exc:
-        LOGGER.error("Failed to parse JSON for %s. Raw content: %s", context, content)
-        raise ValueError(f"Failed to parse JSON for {context}") from exc
+        LOGGER.error("Failed to parse JSON. Raw content: %s", content)
+        raise ValueError("Failed to parse LLM response") from exc
 
 
 def llm_novelty(client: OpenAI, config: dict, article: Article) -> tuple[bool, str]:
+    """Evaluate article novelty using LLM."""
     LOGGER.info("Evaluating novelty for PMID %s", article.pmid)
     prompt = config["llm"]["novelty_prompt"].format(
         title=article.title, journal=article.journal, abstract=article.abstract
     )
-    novelty_schema = config["llm"]["novelty_schema"]
-    response = client.chat.completions.create(
-        model=config["llm"]["model"],
-        temperature=config["llm"].get("temperature", 0.2),
-        messages=[{"role": "user", "content": prompt}],
-        response_format={
-            "type": "json_schema",
-            "json_schema": novelty_schema,
-        },
-        max_tokens=400,
-    )
-    content = response.choices[0].message.content
-    data = parse_json_response(content, "novelty response")
+    data = llm_call(client, config, prompt, config["llm"]["novelty_schema"], max_tokens=400)
     return bool(data.get("is_novel")), data.get("reason", "")
 
 
 def llm_summary(client: OpenAI, config: dict, article: Article) -> tuple[str, str]:
+    """Generate article summary using LLM."""
     LOGGER.info("Generating summary for PMID %s", article.pmid)
     prompt = config["llm"]["summary_prompt"].format(
         title=article.title, journal=article.journal, abstract=article.abstract
     )
-    summary_schema = config["llm"]["summary_schema"]
-    response = client.chat.completions.create(
-        model=config["llm"]["model"],
-        temperature=config["llm"].get("temperature", 0.2),
-        messages=[{"role": "user", "content": prompt}],
-        response_format={
-            "type": "json_schema",
-            "json_schema": summary_schema,
-        },
-        max_tokens=500,
-    )
-    content = response.choices[0].message.content
-    data = parse_json_response(content, "summary response")
+    data = llm_call(client, config, prompt, config["llm"]["summary_schema"], max_tokens=500)
     return data.get("summary", ""), data.get("strengths", "")
 
 
-def google_sheets_service() -> object:
+def google_sheets_service():
+    """Initialize Google Sheets service."""
     json_data = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-    if json_data:
-        LOGGER.info("Using GOOGLE_SERVICE_ACCOUNT_JSON for Sheets auth")
-        info = json.loads(json_data)
-    else:
+    if not json_data:
         raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON")
+
+    LOGGER.info("Initializing Google Sheets service")
+    info = json.loads(json_data)
     credentials = service_account.Credentials.from_service_account_info(
         info, scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
@@ -206,156 +250,189 @@ def google_sheets_service() -> object:
 
 
 def get_service_account_email() -> str | None:
+    """Extract service account email from credentials."""
     json_data = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not json_data:
         return None
     try:
         info = json.loads(json_data)
+        return info.get("client_email")
     except json.JSONDecodeError:
         return None
-    return info.get("client_email")
 
 
-def resolve_sheet_name(config: dict, search_name: str, sheet_name: str | None) -> str:
-    if sheet_name:
-        LOGGER.info("Using configured sheet name: %s", sheet_name)
-        return sheet_name
-    if search_name:
-        LOGGER.info("Using search name for sheet: %s", search_name)
-        return search_name
-    sheet_config = config.get("sheets", {})
-    resolved = sheet_config.get("sheet_name") or DEFAULT_SHEET_NAME
-    LOGGER.info("Using default sheet name: %s", resolved)
-    return resolved
+def get_existing_pmids(service, sheet_id: str, sheet_name: str) -> set[str]:
+    """Get existing PMIDs from Google Sheets to avoid duplicates."""
+    try:
+        result = service.spreadsheets().values().get(
+            spreadsheetId=sheet_id,
+            range=f"{sheet_name}!B:B"  # Column B contains PMIDs
+        ).execute()
+
+        values = result.get("values", [])
+        # Skip header row and extract PMIDs
+        pmids = {row[0] for row in values[1:] if row and row[0] and row[0] != "PMID"}
+        LOGGER.info("Found %d existing PMIDs in sheet", len(pmids))
+        return pmids
+    except HttpError as exc:
+        if exc.resp and exc.resp.status == 404:
+            LOGGER.info("Sheet %s not found, will create new", sheet_name)
+            return set()
+        LOGGER.warning("Could not fetch existing PMIDs: %s", exc)
+        return set()
 
 
-def append_rows(config: dict, sheet_name: str, rows: list[list[str]]) -> None:
+def ensure_headers(service, sheet_id: str, sheet_name: str) -> None:
+    """Ensure sheet has column headers."""
+    try:
+        result = service.spreadsheets().values().get(
+            spreadsheetId=sheet_id,
+            range=f"{sheet_name}!A1:J1"
+        ).execute()
+
+        values = result.get("values", [])
+        if values and values[0] == COLUMN_HEADERS:
+            LOGGER.info("Headers already exist")
+            return
+
+        # Add or update headers
+        service.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range=f"{sheet_name}!A1:J1",
+            valueInputOption="RAW",
+            body={"values": [COLUMN_HEADERS]}
+        ).execute()
+        LOGGER.info("Headers added to sheet")
+    except HttpError:
+        # If sheet doesn't exist, headers will be added with first data
+        LOGGER.info("Will add headers with first data batch")
+
+
+def append_rows(service, sheet_id: str, sheet_name: str, rows: list[list[str]]) -> None:
+    """Append rows to Google Sheets with error handling."""
     if not rows:
-        LOGGER.info("No rows to append to Sheets. Skipping update.")
         return
-    service = google_sheets_service()
-    sheet_id = os.environ.get("SPREADSHEET_ID") or config["sheets"]["spreadsheet_id"]
+
     LOGGER.info("Appending %d rows to sheet %s", len(rows), sheet_name)
-    body = {"values": rows}
+
     try:
         service.spreadsheets().values().append(
             spreadsheetId=sheet_id,
             range=f"{sheet_name}!A1",
             valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
-            body=body,
+            body={"values": rows},
         ).execute()
     except HttpError as exc:
-        message = None
-        activation_url = None
-        reason = None
-        try:
-            content = exc.content.decode("utf-8") if isinstance(exc.content, (bytes, bytearray)) else exc.content
-            payload = json.loads(content)
-            error = payload.get("error", {})
-            message = error.get("message")
-            for detail in error.get("details", []) or []:
-                if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
-                    metadata = detail.get("metadata", {})
-                    activation_url = metadata.get("activationUrl")
-                    reason = detail.get("reason")
-                    break
-        except (json.JSONDecodeError, TypeError, AttributeError):
-            message = None
-        if exc.resp is not None and exc.resp.status == 403:
-            if reason == "SERVICE_DISABLED":
-                activation_link = (
-                    activation_url
-                    or "https://console.developers.google.com/apis/api/sheets.googleapis.com/overview"
-                )
-                LOGGER.error(
-                    "Google Sheets API is disabled for the configured project. Enable it at %s",
-                    activation_link,
-                )
-                raise RuntimeError(
-                    "Google Sheets API is disabled for the configured project. "
-                    f"Enable it at {activation_link}"
-                ) from exc
-            if reason == "PERMISSION_DENIED":
-                service_email = get_service_account_email()
-                share_hint = (
-                    f"Share the spreadsheet with the service account ({service_email})."
-                    if service_email
-                    else "Share the spreadsheet with the service account email."
-                )
-                raise RuntimeError(
-                    "Google Sheets permission denied. "
-                    f"Check SPREADSHEET_ID and access grants. {share_hint}"
-                ) from exc
-        LOGGER.exception(
-            "Failed to append rows to Google Sheets. Status=%s Message=%s",
-            exc.resp.status if exc.resp is not None else "unknown",
-            message or "unknown",
-        )
+        handle_sheets_error(exc)
+
+
+def handle_sheets_error(exc: HttpError) -> None:
+    """Handle Google Sheets API errors with helpful messages."""
+    if not exc.resp or exc.resp.status != 403:
         raise
 
+    # Parse error details
+    reason = None
+    activation_url = None
+    try:
+        content = exc.content.decode("utf-8") if isinstance(exc.content, (bytes, bytearray)) else exc.content
+        payload = json.loads(content)
+        error = payload.get("error", {})
 
-def build_rows(results: list[ReviewResult]) -> list[list[str]]:
-    rows = []
-    for result in results:
-        article = result.article
-        selection = []
-        if result.high_if:
-            selection.append("High IF")
-        if result.is_novel:
-            selection.append("Novelty")
-        rows.append(
-            [
-                datetime.utcnow().strftime("%Y-%m-%d"),
-                article.pmid,
-                article.title,
-                article.journal,
-                article.pub_date,
-                article.doi,
-                ", ".join(selection),
-                result.novelty_reason,
-                result.summary,
-                result.strengths,
-            ]
-        )
-    return rows
+        for detail in error.get("details", []) or []:
+            if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
+                reason = detail.get("reason")
+                activation_url = detail.get("metadata", {}).get("activationUrl")
+                break
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        pass
 
+    # Provide helpful error messages
+    if reason == "SERVICE_DISABLED":
+        url = activation_url or "https://console.developers.google.com/apis/api/sheets.googleapis.com/overview"
+        raise RuntimeError(f"Google Sheets API is disabled. Enable it at {url}") from exc
 
-def get_pubmed_email(pubmed_config: dict) -> str:
-    email_address = os.environ.get("PUBMED_EMAIL") or pubmed_config.get("email", "")
-    email_address = normalize_env_value(email_address)
-    if not email_address:
-        raise RuntimeError("Missing PUBMED_EMAIL or pubmed.email in config")
-    return email_address
+    if reason == "PERMISSION_DENIED":
+        email = get_service_account_email()
+        hint = f"Share the spreadsheet with: {email}" if email else "Share the spreadsheet with service account"
+        raise RuntimeError(f"Permission denied. {hint}") from exc
+
+    raise
 
 
-def build_searches(pubmed_config: dict) -> list[dict]:
-    searches = pubmed_config.get("searches")
-    if searches:
-        return searches
-    search_query = pubmed_config.get("search_query")
-    if not search_query:
-        raise RuntimeError("Missing pubmed.search_query or pubmed.searches in config")
+def build_row(result: ReviewResult) -> list[str]:
+    """Build a single row for Google Sheets."""
+    article = result.article
+    selection = []
+    if result.high_if:
+        selection.append("High IF")
+    if result.is_novel:
+        selection.append("Novelty")
+
     return [
-        {
-            "name": pubmed_config.get("search_name", ""),
-            "query": search_query,
-            "sheet_name": pubmed_config.get("sheet_name"),
-        }
+        datetime.utcnow().strftime("%Y-%m-%d"),
+        article.pmid,
+        article.title,
+        article.journal,
+        article.pub_date,
+        article.doi,
+        ", ".join(selection),
+        result.novelty_reason,
+        result.summary,
+        result.strengths,
     ]
 
 
+def process_article(
+    article: Article,
+    client: OpenAI,
+    config: dict,
+    high_if_list: list[str],
+) -> ReviewResult | None:
+    """Process a single article and return ReviewResult if it passes filters."""
+    if not article.abstract:
+        LOGGER.info("Skipping PMID %s - no abstract", article.pmid)
+        return None
+
+    # Check High IF first (cheaper than LLM call)
+    high_if_flag = is_high_if(article.journal, high_if_list)
+
+    # Only check novelty if not already High IF
+    is_novel = False
+    novelty_reason = ""
+    if not high_if_flag:
+        is_novel, novelty_reason = llm_novelty(client, config, article)
+        if not is_novel:
+            LOGGER.info("Skipping PMID %s - neither High IF nor Novel", article.pmid)
+            return None
+    else:
+        novelty_reason = "Not evaluated (High IF journal)"
+
+    # Generate summary for articles that passed filters
+    summary, strengths = llm_summary(client, config, article)
+
+    return ReviewResult(
+        article=article,
+        high_if=high_if_flag,
+        is_novel=is_novel,
+        novelty_reason=novelty_reason,
+        summary=summary,
+        strengths=strengths,
+    )
+
+
 def fetch_pubmed_ids(pubmed_config: dict, search_query: str, reldate: int) -> list[str]:
+    """Search PubMed and return list of PMIDs."""
     reldate = int(os.environ.get("PUBMED_RELDATE", reldate))
     datetype = os.environ.get("PUBMED_DATETYPE", pubmed_config.get("datetype", "edat"))
     retmax = int(os.environ.get("PUBMED_RETMAX", pubmed_config.get("retmax", 200)))
+
     LOGGER.info(
-        "Searching PubMed with query=%s reldate=%s datetype=%s retmax=%s",
-        search_query,
-        reldate,
-        datetype,
-        retmax,
+        "Searching PubMed - query: %s, reldate: %s, datetype: %s, retmax: %s",
+        search_query, reldate, datetype, retmax,
     )
+
     with Entrez.esearch(
         db="pubmed",
         term=search_query,
@@ -364,66 +441,130 @@ def fetch_pubmed_ids(pubmed_config: dict, search_query: str, reldate: int) -> li
         retmax=retmax,
     ) as handle:
         record = Entrez.read(handle)
+
     count = record.get("Count", "0")
     id_list = record.get("IdList", [])
-    LOGGER.info("Found %s PubMed records. IDs returned: %s", count, len(id_list))
+    LOGGER.info("Found %s PubMed records, returning %s IDs", count, len(id_list))
+
     return list(id_list)
 
 
+def process_search(
+    search: dict,
+    config: dict,
+    client: OpenAI,
+    service,
+    sheet_id: str,
+    high_if_list: list[str],
+    reldate: int,
+) -> None:
+    """Process a single search query."""
+    search_name = search.get("name", "")
+    search_query = search.get("query", "")
+    sheet_name = search.get("sheet_name") or search_name or config.get("sheets", {}).get("sheet_name") or DEFAULT_SHEET_NAME
+
+    if not search_query:
+        LOGGER.warning("Skipping search with empty query for sheet %s", sheet_name)
+        return
+
+    LOGGER.info("Processing search: %s -> Sheet: %s", search_query[:50], sheet_name)
+
+    # Fetch PMIDs
+    pmids = fetch_pubmed_ids(config.get("pubmed", {}), search_query, reldate)
+    if not pmids:
+        LOGGER.info("No new PMIDs found")
+        return
+
+    # Get existing PMIDs to avoid duplicates
+    existing_pmids = get_existing_pmids(service, sheet_id, sheet_name)
+    new_pmids = [pmid for pmid in pmids if pmid not in existing_pmids]
+
+    if not new_pmids:
+        LOGGER.info("All PMIDs already processed (found %d duplicates)", len(pmids))
+        return
+
+    LOGGER.info("Processing %d new PMIDs (%d duplicates skipped)", len(new_pmids), len(pmids) - len(new_pmids))
+
+    # Ensure headers exist
+    ensure_headers(service, sheet_id, sheet_name)
+
+    # Fetch article data
+    summaries, abstracts = fetch_pubmed_data(new_pmids)
+
+    # Process articles with batch saving
+    batch = []
+    total_saved = 0
+
+    for pmid in new_pmids:
+        article = build_article(pmid, summaries, abstracts)
+        result = process_article(article, client, config, high_if_list)
+
+        if result:
+            batch.append(build_row(result))
+
+            # Save in batches to prevent data loss
+            if len(batch) >= SAVE_BATCH_SIZE:
+                append_rows(service, sheet_id, sheet_name, batch)
+                total_saved += len(batch)
+                LOGGER.info("Saved batch (%d rows total so far)", total_saved)
+                batch = []
+
+    # Save remaining rows
+    if batch:
+        append_rows(service, sheet_id, sheet_name, batch)
+        total_saved += len(batch)
+
+    LOGGER.info("Search complete - saved %d articles to %s", total_saved, sheet_name)
+
+
 def main() -> None:
+    """Main entry point."""
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
+    # Load configuration
     config_path = os.environ.get("CONFIG_PATH", "config.yaml")
     config = load_config(config_path)
 
+    # Setup PubMed
     pubmed_config = config.get("pubmed", {})
-    Entrez.email = get_pubmed_email(pubmed_config)
+    email = os.environ.get("PUBMED_EMAIL") or pubmed_config.get("email", "")
+    if not email:
+        raise RuntimeError("Missing PUBMED_EMAIL or pubmed.email in config")
+    Entrez.email = email.strip()
+
+    # Get search queries
+    searches = pubmed_config.get("searches")
+    if not searches:
+        search_query = pubmed_config.get("search_query")
+        if not search_query:
+            raise RuntimeError("Missing pubmed.search_query or pubmed.searches in config")
+        searches = [{
+            "name": pubmed_config.get("search_name", ""),
+            "query": search_query,
+            "sheet_name": pubmed_config.get("sheet_name"),
+        }]
+
+    # Setup date range
     schedule_days = config.get("workflow", {}).get("schedule_days", 1)
-    reldate = pubmed_config.get("reldate")
-    if reldate is None:
-        reldate = schedule_days
-    searches = build_searches(pubmed_config)
+    reldate = pubmed_config.get("reldate") or schedule_days
+
+    # Initialize services
     client = openai_client()
+    service = google_sheets_service()
+    sheet_id = os.environ.get("SPREADSHEET_ID") or config["sheets"]["spreadsheet_id"]
     high_if_list = config["filters"]["high_if_journals"]
 
+    # Process each search
     for search in searches:
-        search_name = search.get("name", "")
-        search_query = search.get("query", "")
-        sheet_name = resolve_sheet_name(config, search_name, search.get("sheet_name"))
-        if not search_query:
-            LOGGER.warning("Skipping search with empty query for sheet %s", sheet_name)
+        try:
+            process_search(search, config, client, service, sheet_id, high_if_list, int(reldate))
+        except Exception as exc:
+            LOGGER.error("Failed to process search %s: %s", search.get("name", ""), exc)
+            # Continue with next search instead of failing completely
             continue
-        pmids = fetch_pubmed_ids(pubmed_config, search_query, int(reldate))
-        if not pmids:
-            LOGGER.info("No PubMed records found for sheet %s. Skipping.", sheet_name)
-            continue
-        summaries = fetch_pubmed_summary(pmids)
-        abstracts = fetch_pubmed_abstracts(pmids)
-        results = []
-        for pmid in pmids:
-            article = build_article(pmid, summaries, abstracts)
-            if not article.abstract:
-                LOGGER.info("Skipping PMID %s because abstract is missing", pmid)
-                continue
-            high_if_flag = is_high_if(article.journal, high_if_list)
-            is_novel, novelty_reason = llm_novelty(client, config, article)
-            if not (high_if_flag or is_novel):
-                LOGGER.info("Skipping PMID %s because it is neither High IF nor Novel", pmid)
-                continue
-            summary, strengths = llm_summary(client, config, article)
-            results.append(
-                ReviewResult(
-                    article=article,
-                    high_if=high_if_flag,
-                    is_novel=is_novel,
-                    novelty_reason=novelty_reason,
-                    summary=summary,
-                    strengths=strengths,
-                )
-            )
-        append_rows(config, sheet_name, build_rows(results))
 
 
 if __name__ == "__main__":

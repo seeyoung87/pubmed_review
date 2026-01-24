@@ -71,4 +71,4 @@ sheets:
 
 workflow:
   # GitHub Actions schedule cadence in days (UTC). Keep this in sync with .github/workflows/pubmed_review.yml.
-  schedule_days: 2
+  schedule_days: 3
