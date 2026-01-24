@@ -287,9 +287,9 @@ def build_article(pmid: str, summary: dict, abstracts: dict[str, str]) -> Articl
 
 
 def is_high_if(journal: str, high_if_list: list[str]) -> bool:
-    """Check if journal is in high impact factor list."""
+    """Check if journal is in high impact factor list (exact match, case-insensitive)."""
     normalized = journal.lower()
-    return any(name.lower() in normalized for name in high_if_list)
+    return normalized in [name.lower() for name in high_if_list]
 
 
 def openai_client() -> OpenAI:
