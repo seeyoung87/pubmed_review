@@ -29,10 +29,16 @@ filters:
     # Radiology (specific journals)
     "Radiology",         # Radiology only (exact match, excludes European/Skeletal Radiology)
     "Radiology: Artificial Intelligence",  # Specific journal name
+    "Radiology. Imaging cancer",
+    "Radiology. Cardiothoracic imaging",
+    "Investigative radiology",
     "European Radiology",
+    "European journal of radiology",
     "American Journal of Roentgenology",
     "Radiographics",
     "Academic radiology",
+    "Korean journal of radiology",
+    "Insights into imaging",
 
     # Digital Health
     "npj Digital Medicine",
