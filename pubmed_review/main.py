@@ -380,7 +380,7 @@ def llm_call(client: OpenAI, config: dict, prompt: str, schema: dict, max_tokens
             "type": "json_schema",
             "json_schema": schema,
         },
-        max_tokens=max_tokens,
+        max_completion_tokens=max_tokens,
     )
 
     # Log token usage
