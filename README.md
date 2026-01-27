@@ -42,9 +42,9 @@ llm:
 
 Google Sheets URL 구조:
 ```
-https://docs.google.com/spreadsheets/d/XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX/edit
-                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-                                       이 부분이 SPREADSHEET_ID
+https://docs.google.com/spreadsheets/d/XXXXXXXX/edit
+                                       ^^^^^^^^
+                                       이 부분 
 ```
 
 ### 3. Google Cloud 설정
