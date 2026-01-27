@@ -374,6 +374,12 @@ def llm_call(client: OpenAI, config: dict, prompt: str, schema: dict, max_tokens
     """Make LLM API call with structured output."""
     model = config["llm"]["model"]
 
+    # Reasoning models (o1/o3/o4/gpt-5) need extra tokens for internal chain-of-thought
+    is_reasoning_model = any(x in model for x in ["o1", "o3", "o4", "gpt-5"])
+    if is_reasoning_model:
+        # Reasoning models use tokens for both reasoning and output
+        max_tokens = max_tokens * 5
+
     # Build API parameters
     params = {
         "model": model,
@@ -385,8 +391,8 @@ def llm_call(client: OpenAI, config: dict, prompt: str, schema: dict, max_tokens
         "max_completion_tokens": max_tokens,
     }
 
-    # Only add temperature for models that support it (not o1/o3/o4/gpt-5 reasoning models)
-    if not any(x in model for x in ["o1", "o3", "o4", "gpt-5"]):
+    # Only add temperature for models that support it (not reasoning models)
+    if not is_reasoning_model:
         params["temperature"] = config["llm"].get("temperature", 0.2)
 
     response = client.chat.completions.create(**params)
