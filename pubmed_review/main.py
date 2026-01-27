@@ -385,8 +385,8 @@ def llm_call(client: OpenAI, config: dict, prompt: str, schema: dict, max_tokens
         "max_completion_tokens": max_tokens,
     }
 
-    # Only add temperature for models that support it (not o1/o3/gpt-5 reasoning models)
-    if not any(x in model for x in ["o1", "o3", "gpt-5"]):
+    # Only add temperature for models that support it (not o1/o3/o4/gpt-5 reasoning models)
+    if not any(x in model for x in ["o1", "o3", "o4", "gpt-5"]):
         params["temperature"] = config["llm"].get("temperature", 0.2)
 
     response = client.chat.completions.create(**params)
