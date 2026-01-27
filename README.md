@@ -1,7 +1,5 @@
 # PubMed Review Automation
 
-PubMed 최신 논문을 자동 검색 → AI 평가 → Google Sheets 저장하는 도구.
-
 ## What It Does
 
 ```
