@@ -66,8 +66,6 @@ https://docs.google.com/spreadsheets/d/XXXXXXXX/edit
 
 \* 3일마다 실행, 30개 논문/회 기준. PubMed API와 Google Sheets API는 무료.
 
-**비용 줄이기**: 모델을 `gpt-5-nano`로 변경 / `retmax` 줄이기 / Selected Journal 리스트 확장 (novelty 호출 생략)
-
 ## Miscellaneous
 
 ### Output 컬럼
