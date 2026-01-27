@@ -36,7 +36,7 @@ llm:
 | `OPENAI_API_KEY` | OpenAI API 키 |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Google 서비스 계정 JSON 전체 |
 | `SPREADSHEET_ID` | Google Sheets URL의 `/d/` 와 `/edit` 사이 문자열 (아래 참고) |
-| `PUBMED_EMAIL` | PubMed API용 이메일 (본인 이메일 아무거나) |
+| `PUBMED_EMAIL` | PubMed API용 이메일  |
 
 #### SPREADSHEET_ID 찾는 법
 
