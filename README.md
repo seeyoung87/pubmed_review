@@ -5,14 +5,12 @@ PubMed 최신 논문을 자동 검색 → AI 평가 → Google Sheets 저장하�
 ## What It Does
 
 ```
-PubMed 검색 → 중복 체크 → Selected Journal? → Yes → 요약 생성 → 시트 저장
-                                             → No  → AI 참신성 평가 → 참신함? → 요약 생성 → 시트 저장
-                                                                    → 아님  → 스킵
+PubMed 쿼리 검색 → Selected Journal? → Yes → AI 요약/강점 정리 → 시트 저장
+                                   → No  → 참신함? → AI 요약/강점 정리 → 시트 저장
+                                                                  → 아님  → 스킵
 ```
-
 - 3일마다 GitHub Actions로 자동 실행
-- Selected Journal 논문은 novelty 체크 생략 (비용 절감)
-- 10개씩 배치 저장, 네트워크 오류 시 자동 재시도
+- Selected Journal 논문은 novelty 체크 생략
 
 ## Setup
 
