@@ -372,16 +372,24 @@ def openai_client() -> OpenAI:
 
 def llm_call(client: OpenAI, config: dict, prompt: str, schema: dict, max_tokens: int) -> dict:
     """Make LLM API call with structured output."""
-    response = client.chat.completions.create(
-        model=config["llm"]["model"],
-        temperature=config["llm"].get("temperature", 0.2),
-        messages=[{"role": "user", "content": prompt}],
-        response_format={
+    model = config["llm"]["model"]
+
+    # Build API parameters
+    params = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "response_format": {
             "type": "json_schema",
             "json_schema": schema,
         },
-        max_completion_tokens=max_tokens,
-    )
+        "max_completion_tokens": max_tokens,
+    }
+
+    # Only add temperature for models that support it (not o1/o3/gpt-5 reasoning models)
+    if not any(x in model for x in ["o1", "o3", "gpt-5"]):
+        params["temperature"] = config["llm"].get("temperature", 0.2)
+
+    response = client.chat.completions.create(**params)
 
     # Log token usage
     usage = response.usage
