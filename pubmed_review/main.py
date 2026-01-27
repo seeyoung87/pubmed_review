@@ -37,8 +37,7 @@ COLUMN_HEADERS = [
 
 # Default LLM Configuration
 DEFAULT_LLM_CONFIG = {
-    "model": "gpt-4o-mini",
-    "temperature": 0.2,
+    "model": "gpt-5-mini",
     "novelty_prompt": """Determine whether the paper demonstrates genuinely novel, cutting-edge methodology.
 Only mark as novel if the contribution is clearly new and meaningfully distinct from existing work.
 Title: {title}
@@ -371,25 +370,13 @@ def openai_client() -> OpenAI:
 
 
 def llm_call(client: OpenAI, config: dict, prompt: str, schema: dict, max_tokens: int) -> dict:
-    """Make LLM API call with structured output."""
-    model = config["llm"]["model"]
-
-    # Build API parameters
-    params = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": schema,
-        },
-        "max_completion_tokens": max_tokens,
-    }
-
-    # Only add temperature for models that support it (not o1/o3/o4/gpt-5 reasoning models)
-    if not any(x in model for x in ["o1", "o3", "o4", "gpt-5"]):
-        params["temperature"] = config["llm"].get("temperature", 0.2)
-
-    response = client.chat.completions.create(**params)
+    """Make LLM API call with structured output (GPT-5 optimized)."""
+    response = client.chat.completions.create(
+        model=config["llm"]["model"],
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_schema", "json_schema": schema},
+        max_completion_tokens=max_tokens,
+    )
 
     # Log token usage
     usage = response.usage
@@ -425,7 +412,7 @@ def llm_novelty(client: OpenAI, config: dict, article: Article) -> tuple[bool, s
     prompt = config["llm"]["novelty_prompt"].format(
         title=article.title, journal=article.journal, abstract=article.abstract
     )
-    data = llm_call(client, config, prompt, config["llm"]["novelty_schema"], max_tokens=400)
+    data = llm_call(client, config, prompt, config["llm"]["novelty_schema"], max_tokens=2000)
     return bool(data.get("is_novel")), data.get("reason", "")
 
 
@@ -435,7 +422,7 @@ def llm_summary(client: OpenAI, config: dict, article: Article) -> tuple[str, st
     prompt = config["llm"]["summary_prompt"].format(
         title=article.title, journal=article.journal, abstract=article.abstract
     )
-    data = llm_call(client, config, prompt, config["llm"]["summary_schema"], max_tokens=500)
+    data = llm_call(client, config, prompt, config["llm"]["summary_schema"], max_tokens=2500)
     return data.get("summary", ""), data.get("strengths", "")
 
 

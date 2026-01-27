@@ -100,7 +100,6 @@ pubmed:
 ```yaml
 llm:
   model: "gpt-5-mini"
-  temperature: 0.2
 
   novelty_prompt: |
     이 논문이 혁신적인지 매우 엄격하게 평가하세요.
@@ -118,7 +117,6 @@ llm:
 | 설정 | 기본값 | 설명 |
 |------|--------|------|
 | `llm.model` | gpt-5-mini | gpt-5-nano, gpt-5-mini, gpt-5.2 |
-| `llm.temperature` | 0.2 | 창의성 수준 (0-2) |
 | `filters.high_if_journals` | [Nature, Science, ...] | High IF 저널 리스트 |
 | `pubmed.reldate` | 3 | 검색 기간(일) |
 | `pubmed.retmax` | 200 | 최대 논문 수 |

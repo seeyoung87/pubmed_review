@@ -292,8 +292,7 @@ filters:
 
         # Check defaults are merged
         assert "llm" in config
-        assert config["llm"]["model"] == "gpt-4o-mini"
-        assert config["llm"]["temperature"] == 0.2
+        assert config["llm"]["model"] == "gpt-5-mini"
         assert "workflow" in config
         assert config["workflow"]["fallback_days"] == 3
 
@@ -311,8 +310,7 @@ sheets:
 filters:
   high_if_journals: ["Nature"]
 llm:
-  model: "gpt-4"
-  temperature: 0.5
+  model: "gpt-5"
 workflow:
   fallback_days: 7
 """)
@@ -320,8 +318,7 @@ workflow:
         config = load_config(str(config_file))
 
         # Check overrides work
-        assert config["llm"]["model"] == "gpt-4"
-        assert config["llm"]["temperature"] == 0.5
+        assert config["llm"]["model"] == "gpt-5"
         assert config["workflow"]["fallback_days"] == 7
         assert config["pubmed"]["retmax"] == 50
 
