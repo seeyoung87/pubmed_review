@@ -27,6 +27,7 @@ filters:
     "Scientific reports",
 
     # Radiology (specific journals)
+    "Abdominal radiology",
     "Radiology",         # Radiology only (exact match, excludes European/Skeletal Radiology)
     "Radiology. Artificial intelligence",
     "Radiology. Imaging cancer",
