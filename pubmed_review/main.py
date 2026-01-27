@@ -400,7 +400,18 @@ def llm_call(client: OpenAI, config: dict, prompt: str, schema: dict, max_tokens
         usage.total_tokens,
     )
 
-    content = response.choices[0].message.content
+    message = response.choices[0].message
+
+    # Check for refusal (structured output can return refusal instead of content)
+    if hasattr(message, "refusal") and message.refusal:
+        LOGGER.error("LLM refused to respond: %s", message.refusal)
+        raise ValueError(f"LLM refused to respond: {message.refusal}")
+
+    content = message.content
+    if not content:
+        LOGGER.error("LLM returned empty content. Response: %s", response)
+        raise ValueError("LLM returned empty content")
+
     try:
         return json.loads(content)
     except json.JSONDecodeError as exc:
