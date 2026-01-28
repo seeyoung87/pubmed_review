@@ -14,51 +14,7 @@ from pubmed_review.main import (
     build_row,
     load_config,
     validate_config,
-    calculate_reldate,
 )
-
-
-class TestCalculateReldate:
-    """Tests for calculate_reldate function."""
-
-    def test_no_last_run_time(self):
-        """Should return fallback_days when no last run time."""
-        assert calculate_reldate(None, fallback_days=3) == 3
-        assert calculate_reldate("", fallback_days=5) == 5
-
-    def test_recent_run(self):
-        """Should calculate days from last run with buffer."""
-        from datetime import datetime, timezone, timedelta
-
-        # 1 day ago
-        one_day_ago = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-        result = calculate_reldate(one_day_ago, fallback_days=3)
-        assert result >= 1  # At least 1 day
-        assert result <= 3  # Within expected range
-
-    def test_max_cap(self):
-        """Should cap at fallback_days * 2."""
-        from datetime import datetime, timezone, timedelta
-
-        # 30 days ago
-        thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        result = calculate_reldate(thirty_days_ago, fallback_days=3)
-        assert result == 6  # Capped at 3 * 2
-
-    def test_invalid_timestamp(self):
-        """Should return fallback_days for invalid timestamp."""
-        assert calculate_reldate("invalid", fallback_days=3) == 3
-        assert calculate_reldate("2024-13-45", fallback_days=5) == 5
-
-    def test_github_format(self):
-        """Should handle GitHub API timestamp format."""
-        from datetime import datetime, timezone, timedelta
-
-        # GitHub format with Z suffix
-        two_days_ago = (datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        result = calculate_reldate(two_days_ago, fallback_days=7)
-        assert result >= 2  # At least 2 days + buffer
-        assert result <= 7  # Within fallback
 
 
 class TestChunked:
@@ -289,8 +245,6 @@ filters:
         # Check defaults are merged
         assert "llm" in config
         assert config["llm"]["model"] == "gpt-5-mini"
-        assert "workflow" in config
-        assert config["workflow"]["fallback_days"] == 3
 
     def test_load_with_overrides(self, tmp_path):
         config_file = tmp_path / "config.yaml"
@@ -307,15 +261,12 @@ filters:
   high_if_journals: ["Nature"]
 llm:
   model: "gpt-5"
-workflow:
-  fallback_days: 7
 """)
 
         config = load_config(str(config_file))
 
         # Check overrides work
         assert config["llm"]["model"] == "gpt-5"
-        assert config["workflow"]["fallback_days"] == 7
         assert config["pubmed"]["retmax"] == 50
 
 

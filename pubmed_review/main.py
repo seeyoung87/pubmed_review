@@ -3,7 +3,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Iterable
 import xml.etree.ElementTree as ET
 
@@ -79,10 +79,6 @@ DEFAULT_PUBMED_CONFIG = {
     "datetype": "edat",
 }
 
-# Default Workflow Configuration
-DEFAULT_WORKFLOW_CONFIG = {
-    "fallback_days": 3,  # Used when last run time is unavailable
-}
 
 LOGGER = logging.getLogger(__name__)
 
@@ -124,11 +120,6 @@ def load_config(path: str) -> dict:
         config["pubmed"] = {}
     for key, value in DEFAULT_PUBMED_CONFIG.items():
         config["pubmed"].setdefault(key, value)
-
-    if "workflow" not in config:
-        config["workflow"] = {}
-    for key, value in DEFAULT_WORKFLOW_CONFIG.items():
-        config["workflow"].setdefault(key, value)
 
     return config
 
@@ -194,35 +185,6 @@ def chunked(values: Iterable[str], size: int) -> Iterable[list[str]]:
             batch = []
     if batch:
         yield batch
-
-
-def calculate_reldate(last_run_time: str | None, fallback_days: int = 3) -> int:
-    """Calculate reldate (days) from last successful run time.
-
-    Args:
-        last_run_time: ISO 8601 timestamp from GitHub Actions (e.g., "2024-01-15T02:00:00Z")
-        fallback_days: Days to use if last_run_time is unavailable
-
-    Returns:
-        Number of days to search back, with 1 day buffer for safety
-    """
-    if not last_run_time:
-        LOGGER.info("No last run time available, using fallback: %d days", fallback_days)
-        return fallback_days
-
-    try:
-        # Parse ISO 8601 timestamp
-        last_run = datetime.fromisoformat(last_run_time.replace("Z", "+00:00"))
-        now = datetime.now(timezone.utc)
-        delta_days = (now - last_run).days + 1  # +1 day buffer for safety
-
-        # Minimum 1 day, maximum fallback_days * 2 (prevent excessive queries)
-        reldate = max(1, min(delta_days, fallback_days * 2))
-        LOGGER.info("Calculated reldate: %d days (last run: %s)", reldate, last_run_time)
-        return reldate
-    except (ValueError, TypeError) as exc:
-        LOGGER.warning("Failed to parse last run time '%s': %s, using fallback", last_run_time, exc)
-        return fallback_days
 
 
 def retry_with_backoff(func, *args, max_retries=MAX_RETRIES, **kwargs):
@@ -748,10 +710,8 @@ def main() -> None:
             "sheet_name": pubmed_config.get("sheet_name"),
         }]
 
-    # Setup date range - auto-calculate from last run time
-    last_run_time = os.environ.get("LAST_RUN_TIME")
-    fallback_days = config.get("workflow", {}).get("fallback_days", 3)
-    reldate = pubmed_config.get("reldate") or calculate_reldate(last_run_time, fallback_days)
+    # Search last 1 day (workflow runs daily)
+    reldate = pubmed_config.get("reldate") or 1
 
     # Initialize services
     client = openai_client()
