@@ -77,6 +77,8 @@ For the comment: In 1 sentence, explain what makes this paper noteworthy — wha
 DEFAULT_PUBMED_CONFIG = {
     "retmax": 200,
     "datetype": "edat",
+    "reldate": 1,  # Daily search (1 day)
+    "initial_reldate": 30,  # Initial fetch (30 days) when sheet is empty
 }
 
 
@@ -608,6 +610,7 @@ def process_search(
     sheet_id: str,
     high_if_list: list[str],
     reldate: int,
+    initial_reldate: int,
 ) -> None:
     """Process a single search query."""
     search_name = search.get("name", "")
@@ -620,14 +623,19 @@ def process_search(
 
     LOGGER.info("Processing search: %s -> Sheet: %s", search_query[:50], sheet_name)
 
+    # Get existing titles to avoid duplicates
+    existing_titles = get_existing_titles(service, sheet_id, sheet_name)
+
+    # Use initial_reldate (30 days) if sheet is empty, otherwise use reldate (1 day)
+    effective_reldate = reldate if existing_titles else initial_reldate
+    if not existing_titles:
+        LOGGER.info("Sheet is empty - fetching last %d days for initial setup", initial_reldate)
+
     # Fetch PMIDs
-    pmids = fetch_pubmed_ids(config.get("pubmed", {}), search_query, reldate)
+    pmids = fetch_pubmed_ids(config.get("pubmed", {}), search_query, effective_reldate)
     if not pmids:
         LOGGER.info("No new PMIDs found")
         return
-
-    # Get existing titles to avoid duplicates
-    existing_titles = get_existing_titles(service, sheet_id, sheet_name)
 
     # Ensure headers exist
     ensure_headers(service, sheet_id, sheet_name)
@@ -710,8 +718,11 @@ def main() -> None:
             "sheet_name": pubmed_config.get("sheet_name"),
         }]
 
-    # Search last 1 day (workflow runs daily)
-    reldate = pubmed_config.get("reldate") or 1
+    # Search configuration
+    # reldate: daily search (default 1 day)
+    # initial_reldate: first run when sheet is empty (default 30 days)
+    reldate = pubmed_config.get("reldate", 1)
+    initial_reldate = pubmed_config.get("initial_reldate", 30)
 
     # Initialize services
     client = openai_client()
@@ -722,7 +733,7 @@ def main() -> None:
     # Process each search
     for search in searches:
         try:
-            process_search(search, config, client, service, sheet_id, high_if_list, int(reldate))
+            process_search(search, config, client, service, sheet_id, high_if_list, int(reldate), int(initial_reldate))
         except Exception as exc:
             LOGGER.error("Failed to process search %s: %s", search.get("name", ""), exc)
             # Continue with next search instead of failing completely
