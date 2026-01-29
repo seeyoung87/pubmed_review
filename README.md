@@ -5,7 +5,7 @@
 ```
 PubMed 쿼리 검색 → Selected Journal? → Yes → AI 요약/강점 정리 → 시트 저장
                                    → No  → 참신함? → AI 요약/강점 정리 → 시트 저장
-                                                                  → 아님  → 스킵
+                                                  → 아님  → 스킵
 ```
 
 
@@ -74,7 +74,7 @@ Date | Title | Journal | Selection Criteria | Summary | Comment
 
 ### 저널 이름 매칭
 
-`config.yaml`의 `high_if_journals`는 정확한 매칭 + 와일드카드를 지원합니다:
+`config.yaml`의 `high_if_journals`는 정확한 매칭 + 와일드카드를 지원:
 
 - `"Radiology"` → Radiology만 매칭 (European Radiology 제외)
 - `"Nature*"` → Nature, Nature Medicine, Nature Biotechnology 등
