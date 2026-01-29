@@ -52,9 +52,9 @@ https://docs.google.com/spreadsheets/d/XXXXXXXX/edit
 4. Google Sheets를 서비스 계정 이메일과 **편집자**로 공유
 
 ### 3. 실행
-
-- **자동**: 매일 02:00 UTC (GitHub Actions)
-- **수동**: Actions 탭 → Run workflow
+- Actions 탭 → Run workflow
+- **처음**: 이전 30일치 업데이트
+- **매일**: 매일 02:00 UTC에 1일치 업데이트 
 
 ## Cost Estimation
 
