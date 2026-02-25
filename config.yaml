@@ -2,11 +2,11 @@ pubmed:
   searches:
     # 1. ERCP & EUS 중재술 및 진단 (EUS-FNB 등)
     - query: '("ERCP" OR "endoscopic retrograde cholangiopancreatography" OR "EUS" OR "endoscopic ultrasound") AND ("intervention" OR "FNB" OR "FNA" OR "drainage" OR "stent" OR "guided" OR "biopsy")'
-      sheet_name: "ERCP & EUS"
+      sheet_name: "ERCP_EUS"
     
     # 2. 췌장담도암 & 항암/전신 치료
     - query: '("pancreatic cancer" OR "biliary tract cancer" OR "cholangiocarcinoma" OR "ampullary cancer") AND ("chemotherapy" OR "immunotherapy" OR "targeted therapy" OR "oncology")'
-      sheet_name: "PB Oncology"
+      sheet_name: "PB_Oncology"
 
 filters:
   # Selected journals (journals you always want to track)
