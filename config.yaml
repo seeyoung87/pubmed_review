@@ -1,78 +1,70 @@
 pubmed:
   searches:
-    - query: '("Radiology") AND (("large language model") OR ("natural language processing") OR ("GPT"))'
-      sheet_name: "Radiology NLP"
-    # - query: '("CT") AND ("deep learning")'
-    #   sheet_name: "CT Deep Learning"
-    # - query: '("MRI") AND ("artificial intelligence")'
-    #   sheet_name: "MRI AI"
+    # 1. ERCP & EUS 중재술 및 진단 (EUS-FNB 등)
+    - query: '("ERCP" OR "endoscopic retrograde cholangiopancreatography" OR "EUS" OR "endoscopic ultrasound") AND ("intervention" OR "FNB" OR "FNA" OR "drainage" OR "stent" OR "guided" OR "biopsy")'
+      sheet_name: "ERCP & EUS"
+    
+    # 2. 췌장담도암 & 항암/전신 치료
+    - query: '("pancreatic cancer" OR "biliary tract cancer" OR "cholangiocarcinoma" OR "ampullary cancer") AND ("chemotherapy" OR "immunotherapy" OR "targeted therapy" OR "oncology")'
+      sheet_name: "PB Oncology"
 
 filters:
   # Selected journals (journals you always want to track)
-  # Matching rules:
-  #   - Exact match by default (case-insensitive): "Nature" matches only "Nature"
-  #   - Wildcard support: "Nature*" matches "Nature Medicine", "Nature Biotechnology", etc.
   high_if_journals: [
-    # General High-Impact (exact names or series)
-    "Nature*",           # Nature, Nature Medicine, Nature Biotechnology, etc.
-    "Science",           # Science only
-    "Cell",              # Cell only
-    "The Lancet*",       # The Lancet, The Lancet Oncology, etc.
+    # General High-Impact / Oncology
+    "Nature*",           
+    "Science",           
+    "Cell",              
+    "The Lancet*",       
     "The New England journal of medicine",
-    "JAMA",              # JAMA only (not JAMA Network journals)
-    "Scientific reports",
+    "JAMA",
+    "Journal of clinical oncology",
+    "Annals of oncology",
 
-    # Radiology (specific journals)
-    "Abdominal radiology",
-    "Radiology",         # Radiology only (exact match, excludes European/Skeletal Radiology)
-    "Radiology. Artificial intelligence",
-    "Radiology. Imaging cancer",
-    "Radiology. Cardiothoracic imaging",
-    "Investigative radiology",
-    "European radiology",
-    "European journal of radiology",
-    "AJR. American journal of roentgenology",
-    "Radiographics",
-    "Academic radiology",
-    "Korean journal of radiology",
-    "Insights into imaging",
+    # Gastroenterology & Hepatology 
+    "Gastroenterology",
+    "Gut",
+    "Clinical gastroenterology and hepatology",
+    "American journal of gastroenterology",
+    "Journal of hepatology",
+    "Hepatology",
 
-    # Digital Health
-    "npj Digital Medicine",
-    "The Lancet. Digital health",
+    # Endoscopy 
+    "Endoscopy",
+    "Gastrointestinal endoscopy",
+    "Digestive endoscopy",
+    "Surgical endoscopy",
 
-    # AI & Medical Imaging
-    "Nature Machine Intelligence",
-    "IEEE Transactions on Pattern Analysis and Machine Intelligence",
-    "IEEE Transactions on Medical Imaging",
-    "Medical Image Analysis",
-    "Artificial Intelligence in Medicine"
+    # Pancreatobiliary 
+    "Pancreatology",
+    "Pancreas",
+    "Journal of hepato-biliary-pancreatic sciences"
   ]
 
 llm:
   model: "gpt-5-mini"
 
-  # Novelty evaluation prompt (Available variables: {title}, {journal}, {abstract})
+  # Novelty evaluation prompt
   novelty_prompt: |
-    이 논문이 정말로 혁신적이고 참신한(novel) 방법론을 제시하는지 엄격하게 평가하세요.
-    기존 연구의 incremental improvement나 단순 응용은 novel로 인정하지 마세요.
-    새로운 methodology, architecture, 또는 breakthrough만 novel로 판정하세요.
+    이 논문이 정말로 혁신적이고 참신한(novel) 방법론이나 임상적 발견을 제시하는지 엄격하게 평가하세요.
+    기존 치료법의 단순한 용량 조절이나 후향적 단순 비교는 novel로 인정하지 마세요.
+    새로운 ERCP/EUS 술기(breakthrough), 기구(device)의 혁신적 사용, 또는 임상 가이드라인을 바꿀 만한 항암 연구만 novel로 판정하세요.
 
     제목: {title}
     저널: {journal}
     초록: {abstract}
 
-    답변은 한글로 작성하되, 중요 키워드(method명, model명 등)는 영어 그대로 사용하세요.
+    답변은 한글로 작성하되, 중요 키워드(시술명, 기구명, 약제명 등)는 영어 그대로 사용하세요.
     근거(reason)는 정확히 2줄 이내로 작성하세요.
 
-  # Summary generation prompt (Available variables: {title}, {journal}, {abstract})
+  # Summary generation prompt
   summary_prompt: |
-    동료에게 논문을 쉽게 설명해주듯이 답변하세요.
+    동료 소화기내과 전문의에게 최신 논문을 쉽게 설명해주듯이 답변하세요.
 
     제목: {title}
     저널: {journal}
     초록: {abstract}
 
-    답변은 한글로 작성하되, 중요 키워드(method명, model명 등)는 영어 그대로 사용하세요.
-    - summary: "이 논문 뭐야?" 라고 물었을 때 짧게 1~2문장으로 답하듯이 써주세요. 구체적인 수치나 결과값은 빼고, 뭘 어떻게 해서 어떤 결과를 얻었는지만 쉽게 설명하세요.
-    - comment: 이 논문이 어떤 점에서 뛰어나고 왜 주목할 만한지 1문장으로 간결하게 설명하세요.
+    답변은 한글로 작성하되, 중요 키워드(시술명, 기구명, 약제명 등)는 영어 그대로 사용하세요.
+    - summary: "이 논문 뭐야?" 라고 물었을 때 짧게 1~2문장으로 답하듯이 써주세요. 어떤 환자군에게 어떤 내시경 시술(예: EUS-FNB, ERCP stent)이나 항암제를 썼더니 임상적으로 어떤 이득/합병증이 있었는지만 쉽게 설명하세요.
+    - comment: 이 논문이 실제 췌장담도 임상 현장(practice)에서 왜 주목할 만한지 1문장으로 간결하게 설명하세요.
