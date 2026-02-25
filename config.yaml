@@ -12,6 +12,7 @@ filters:
   # Selected journals (journals you always want to track)
   high_if_journals: [
     # General High-Impact / Oncology
+    "*", # 테스트용: 모든 저널 임시 허용
     "Nature*",           
     "Science",           
     "Cell",              
